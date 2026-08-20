@@ -1,0 +1,20 @@
+{
+  "name": "space-invaders-reimagined",
+  "version": "1.0.0",
+  "description": "A modern reinterpretation of the classic Space Invaders.",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "lint": "echo 'Linting skipped as this is a conceptual build structure.'"
+  },
+  "keywords": [
+    "phaser",
+    "arcade",
+    "game"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}
