@@ -207,9 +207,11 @@ class MainScene extends Phaser.Scene {
         this.titleUI.add([startGlow, startBtn, startShadow, startLabel]);
 
         // --- High score ---
-        this.titleUI.add(this.add.text(400, 215, 'HIGH SCORE', { fontFamily: 'monospace', fontSize: '14px', color: '#886622', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5));
+        this.titleUI.add(this.add.text(400, 180, 'HIGH SCORE', { fontFamily: 'monospace', fontSize: '14px', color: '#886622', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5));
 
-        this.titleUI.add(this.add.text(400, 240, String(this.highScore).padStart(5, '0'), { fontFamily: 'monospace', fontSize: '22px', color: '#ffd23d', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
+
+        this.titleUI.add(this.add.text(400, 205, String(this.highScore).padStart(5, '0'), { fontFamily: 'monospace', fontSize: '22px', color: '#ffd23d', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
+
 
 
 
