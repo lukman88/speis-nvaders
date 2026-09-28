@@ -53,7 +53,8 @@ class MainScene extends Phaser.Scene {
         });
         // Menu button (mobile): return to title screen
         const menuBtn = document.getElementById('menu-btn');
-        if (menuBtn) menuBtn.addEventListener('click', () => this.scene.restart());
+        if (menuBtn) menuBtn.addEventListener('pointerdown', () => this.goToTitle());
+
         // Re-measure the canvas when the window resizes or the phone rotates.
         // Critical: the container is display:none in portrait, so Phaser can't
         // size the canvas on init. This refresh picks up the new size after rotation.
@@ -244,6 +245,34 @@ class MainScene extends Phaser.Scene {
         const el = document.getElementById('game-container');
         if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {});
     }
+
+    // Menu button: clean up all game state and return to title
+    goToTitle() {
+        sfx.stopMusic();
+        sfx.stopMarch();
+        this.physics.pause();
+        if (this.titleUI) { this.titleUI.destroy(); this.titleUI = null; this.muteLabel = null; }
+        if (this.stageClearUI) { this.stageClearUI.destroy(); this.stageClearUI = null; }
+        if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; }
+        if (this.invaderGroup) this.invaderGroup.clear(true);
+        if (this.playerBullets) this.playerBullets.clear(true);
+        if (this.enemyBullets) this.enemyBullets.clear(true);
+        if (this.bossHazards) this.bossHazards.clear(true);
+        if (this.bossGroup) this.bossGroup.clear(true);
+        if (this.powerUps) this.powerUps.clear(true);
+        if (this.ufoGroup) this.ufoGroup.clear(true);
+        if (this.shields) { this.shields.forEach(s => s.destroy()); this.shields = null; }
+        if (this.player) { this.player.destroy(); this.player = null; }
+        this.boss = null;
+        this.ufo = null;
+        if (this.hud) { this.hud.destroy(); this.hud = null; }
+        this.gameState = 'title';
+        this.score = 0;
+        this.lives = 3;
+        this.waveCounter = 1;
+        this.showTitle();
+    }
+
 
     startGame() {
         if (this.title3dEl) this.title3dEl.classList.remove('on');
