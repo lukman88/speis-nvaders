@@ -63,10 +63,14 @@ class MainScene extends Phaser.Scene {
         window.addEventListener('orientationchange', () => {
             setTimeout(() => this.scale.refresh(), 150);
         });
-        // rAF x2: wait for the browser to finish relayout after fullscreen change
+        // rAF x2 + timeout: wait for the browser to finish relayout after fullscreen change.
+        // Exiting fullscreen can leave the canvas zoomed in if refresh fires before
+        // the container's CSS dimensions are updated.
         document.addEventListener('fullscreenchange', () => {
             requestAnimationFrame(() => requestAnimationFrame(() => this.scale.refresh()));
+            setTimeout(() => this.scale.refresh(), 150);
         });
+
 
 
 
