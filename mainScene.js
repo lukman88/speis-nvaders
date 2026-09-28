@@ -51,6 +51,14 @@ class MainScene extends Phaser.Scene {
             if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
             else this.goFullscreen();
         });
+        // Re-measure the canvas when the window resizes or the phone rotates.
+        // Critical: the container is display:none in portrait, so Phaser can't
+        // size the canvas on init. This refresh picks up the new size after rotation.
+        window.addEventListener('resize', () => this.scale.refresh());
+        window.addEventListener('orientationchange', () => this.scale.refresh());
+        document.addEventListener('fullscreenchange', () => this.scale.refresh());
+
+
 
 
         this.highScore = loadHighScore();
