@@ -66,13 +66,22 @@
         @keyframes blink { 50% { opacity: 0.25; } }
         /* Mobile: strip cabinet chrome, fill the screen */
         @media (max-width: 850px), (max-height: 650px) {
-            #cabinet { border: none; border-radius: 0; padding: 0; box-shadow: none; background: none; }
-            #marquee, #controls { display: none; }
-            #game-container { border: none; outline: none; border-radius: 0; box-shadow: none; }
-            #game-container canvas { border-radius: 0; }
             body { min-height: 100vh; min-height: 100dvh; }
+            #cabinet {
+                border: none; border-radius: 0; padding: 0;
+                box-shadow: none; background: none;
+                width: 100vw; height: 100dvh;
+                display: flex;
+            }
+            #marquee, #controls { display: none; }
+            #game-container {
+                border: none; outline: none; border-radius: 0; box-shadow: none;
+                width: 100%; height: 100%;
+            }
+            #game-container canvas { border-radius: 0; }
             #title-3d { font-size: 28px; letter-spacing: 1px; }
         }
+
         /* Portrait prompt: shown only on small screens in portrait orientation */
         #rotate-prompt {
             display: none;

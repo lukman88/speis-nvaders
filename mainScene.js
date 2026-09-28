@@ -55,8 +55,14 @@ class MainScene extends Phaser.Scene {
         // Critical: the container is display:none in portrait, so Phaser can't
         // size the canvas on init. This refresh picks up the new size after rotation.
         window.addEventListener('resize', () => this.scale.refresh());
-        window.addEventListener('orientationchange', () => this.scale.refresh());
-        document.addEventListener('fullscreenchange', () => this.scale.refresh());
+        // Delay: CSS media queries need a tick to apply before Phaser measures
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => this.scale.refresh(), 150);
+        });
+        document.addEventListener('fullscreenchange', () => {
+            setTimeout(() => this.scale.refresh(), 100);
+        });
+
 
 
 
