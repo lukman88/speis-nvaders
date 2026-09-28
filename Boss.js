@@ -120,10 +120,10 @@ class Boss {
         s.cameras.main.flash(250, 255, 255, 255);
         s.cameras.main.shake(600, 0.08);
         sfx.bossDie();
-        // Staggered secondary detonations ripple outward over 600ms
+        // Staggered secondary detonations ripple outward over ~2s
         const cx = this.coreX, cy = this.coreY;
-        const delays = [120, 240, 360, 480];
-        const offsets = [{x:-40,y:-20},{x:40,y:-20},{x:-25,y:30},{x:25,y:30}];
+        const delays = [300, 600, 900, 1200, 1500, 1800];
+        const offsets = [{x:-40,y:-20},{x:40,y:-20},{x:-25,y:30},{x:25,y:30},{x:0,y:0},{x:0,y:-35}];
         delays.forEach((d, i) => {
             s.time.delayedCall(d, () => {
                 s.burst(s.boomFX, cx + offsets[i].x, cy + offsets[i].y, 0xffaa44, 30);
@@ -131,8 +131,8 @@ class Boss {
             });
         });
         // Final big flash as the wave ends
-        s.time.delayedCall(550, () => {
-            s.cameras.main.flash(150, 255, 200, 100);
+        s.time.delayedCall(2100, () => {
+            s.cameras.main.flash(200, 255, 200, 100);
             s.onBossDefeated();
         });
     }

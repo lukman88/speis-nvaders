@@ -800,7 +800,8 @@ class MainScene extends Phaser.Scene {
         this.boss = null;
         this.bossGroup.clear(true);
         sfx.startMusic('normal'); // back to the menacing loop
-        this.showStageClear();
+        // 2s breather after the explosion before the stage-clear screen appears
+        this.time.delayedCall(2000, () => this.showStageClear());
     }
 
     showStageClear() {
