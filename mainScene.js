@@ -42,6 +42,10 @@ class MainScene extends Phaser.Scene {
         document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 
         this.soundOn = !sfx.isMuted(); // mute state is global, survives scene restarts
+        // Mobile mute button (DOM overlay, top-right corner)
+        const muteBtn = document.getElementById('mute-btn');
+        if (muteBtn) muteBtn.addEventListener('click', () => this.toggleSound());
+
         this.highScore = loadHighScore();
         // Touch/mouse: drag to move the ship, hold to auto-fire. pointerX is the
         // last touched canvas x (null until first touch); pointerHeld gates firing.
@@ -149,6 +153,8 @@ class MainScene extends Phaser.Scene {
         sfx.setMuted(!this.soundOn);
         if (this.soundOn) sfx.shoot(); // confirmation blip only when unmuting
         if (this.muteLabel && !this.muteLabel.destroyed) this.muteLabel.setText('SOUND: ' + (this.soundOn ? 'ON' : 'OFF'));
+        const mb = document.getElementById('mute-btn');
+        if (mb) mb.textContent = this.soundOn ? '\u{1F50A}' : '\u{1F507}';
     }
 
     startGame() {

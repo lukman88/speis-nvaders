@@ -73,12 +73,67 @@
             body { min-height: 100vh; min-height: 100dvh; }
             #title-3d { font-size: 28px; letter-spacing: 1px; }
         }
+        /* Portrait prompt: shown only on small screens in portrait orientation */
+        #rotate-prompt {
+            display: none;
+            position: fixed; inset: 0;
+            background: #050514;
+            z-index: 999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #44ff66;
+            font-family: 'Courier New', monospace;
+            font-size: 22px;
+            text-align: center;
+            padding: 24px;
+        }
+        #rotate-prompt .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            animation: rotateHint 1.6s ease-in-out infinite;
+        }
+        @keyframes rotateHint {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+        }
+        @media (max-width: 850px) and (orientation: portrait) {
+            #rotate-prompt { display: flex; }
+            #cabinet { display: none; }
+        }
+        /* In-game mute button: top-right corner, mobile only */
+        #mute-btn {
+            display: none;
+            position: fixed;
+            top: 10px; right: 10px;
+            z-index: 100;
+            width: 44px; height: 44px;
+            background: rgba(13, 40, 24, 0.7);
+            border: 2px solid #44ff66;
+            border-radius: 8px;
+            color: #44ff66;
+            font-size: 20px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        @media (max-width: 850px), (max-height: 650px) {
+            #mute-btn { display: block; }
+        }
+
 
     </style>
     <!-- Load Phaser library (local copy — no internet required) -->
     <script src="lib/phaser.min.js"></script>
 </head>
 <body>
+    <div id="rotate-prompt">
+        <div class="icon">&#128241;</div>
+        Rotate your phone<br>to landscape
+    </div>
+    <button id="mute-btn" aria-label="Toggle sound">&#128266;</button>
+
     <div id="cabinet">
         <div id="marquee">SPACE&nbsp;INVADERS</div>
         <div id="game-container">
