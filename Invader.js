@@ -6,12 +6,28 @@ class Invader extends Phaser.Physics.Arcade.Sprite {
     static INITIAL_SPEED_X = 60;  // Base horizontal speed magnitude
     static VERTICAL_DROP = 20;    // One-time drop when the formation reverses
 
-    constructor(scene, x, y, textureKey) {
+    // Tiers per row, top (index 0) to bottom (index 4): the original's
+    // structure is "higher = tougher and worth more". takeDamage() drains hp,
+    // dive weighting uses row (deeper rows dive more often — "the lower they
+    // go, the scarier they get").
+    static TIERS = [
+        { hp: 3, points: 30 },
+        { hp: 2, points: 20 },
+        { hp: 2, points: 10 },
+        { hp: 1, points: 10 },
+        { hp: 1, points: 10 },
+    ];
+
+    constructor(scene, x, y, textureKey, row = 0) {
         super(scene, x, y, textureKey);
         this.setDepth(15); // Higher depth than player/bullets to show movement
 
         this.isAlive = true;
         this.diving = false; // true while this invader is arcing in as a kamikaze
+        this.row = row;
+        const tier = Invader.TIERS[row % Invader.TIERS.length];
+        this.hp = tier.hp;
+        this.points = tier.points;
     }
 
     /**
@@ -21,14 +37,22 @@ class Invader extends Phaser.Physics.Arcade.Sprite {
      */
     diveAt(tx, ty) {
         this.diving = true;
-        const T = 1.2;                 // seconds of flight — slow enough to see, fast enough to matter
-        const vy = -350;               // initial upward lob
-        this.setVelocity((tx - this.x) / T, vy);
-        this.setGravityY(2 * (ty - this.y - vy * T) / (T * T));
+        const m = this.scene.diffMul || 1; // difficulty scale: higher = faster
+        const T = 1.2 / m;            // seconds of flight — slow enough to see, fast enough to matter
+        const vy = -350 * m;          // initial upward lob
+        const arc = arcVelocity(this.x, this.y, tx, ty, T, vy);
+        this.setVelocity(arc.vx, arc.vy);
+        this.setGravityY(arc.gravity);
     }
 
+    /**
+     * One hit of damage. @returns {boolean} true only when this hit killed
+     * the invader (caller scores/bursts then); false for a wounded survivor.
+     */
     takeDamage() {
         if (!this.isAlive) return false;
+        this.hp--;
+        if (this.hp > 0) return false;
         this.isAlive = false;
         this.destroy(); // Removes from scene + group and frees the physics body
         return true;

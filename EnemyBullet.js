@@ -19,11 +19,12 @@ class EnemyBullet extends Phaser.Physics.Arcade.Sprite {
      * so the group's default velocityY: 350 gets clobbered, not the other way round.
      */
     fireArcAt(tx, ty) {
-        const T = 1.0 / 0.75;         // seconds of flight (1.0s / 0.75 = 25% slower: same arc, stretched time)
-        const vy = -420;              // initial upward lob
-        const g = 2 * (ty - this.y - vy * T) / (T * T); // gravity that lands on target at T
-        this.setVelocity((tx - this.x) / T, vy);
-        this.setGravityY(g);
+        const m = this.scene.diffMul || 1; // difficulty scale: higher = faster
+        const T = (1.0 / 0.75) / m;   // seconds of flight (1.0s / 0.75 = 25% slower: same arc, stretched time)
+        const vy = -420 * m;          // initial upward lob
+        const arc = arcVelocity(this.x, this.y, tx, ty, T, vy);
+        this.setVelocity(arc.vx, arc.vy);
+        this.setGravityY(arc.gravity);
         this.isArc = true;            // scene rotates the sprite to face its velocity
     }
 }

@@ -1,5 +1,5 @@
 // smoke_test.js — headless smoke test: load game, capture console, verify input + spawning
-// Run: node test/smoke_test.js   (requires server on :8000)
+// Run: node test/smoke_test.js   (requires server on :8000, override with PORT env)
 const path = require('path');
 const { chromium } = require('playwright-core');
 const shot = (name) => path.join(__dirname, name); // screenshots land next to this script
@@ -16,7 +16,8 @@ const shot = (name) => path.join(__dirname, name); // screenshots land next to t
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.stack || e.message}`));
   page.on('requestfailed', (r) => logs.push(`[requestfailed] ${r.url()} ${r.failure()?.errorText}`));
 
-  await page.goto('http://localhost:8000', { waitUntil: 'load' });
+  const port = process.env.PORT || 8000;
+  await page.goto(`http://localhost:${port}`, { waitUntil: 'load' });
   await page.waitForTimeout(2000); // let a few frames tick
   // hold ~120ms: a down+up within one frame can be missed by JustDown
   await page.keyboard.down('Enter'); await page.waitForTimeout(120); await page.keyboard.up('Enter');
@@ -73,6 +74,33 @@ const shot = (name) => path.join(__dirname, name); // screenshots land next to t
   await page.waitForTimeout(300);
   const sc1 = await snap();
 
+  // Last-survivor dive: once the only invader breaks off to dive, the shooter
+  // filter is empty (old bug: attemptShoot() on undefined froze the loop), and when
+  // the diver exits the arc off-screen it must trigger the stage clear (not a bullet)
+  await page.evaluate(() => {
+    const s = game.scene.keys.MainScene;
+    if (s.gameState === 'playing') {
+      const kids = s.invaderGroup.getChildren().slice(); // live array: destroy() splices it mid-loop
+      for (let i = 0; i < kids.length - 1; i++) while (kids[i].isAlive) kids[i].takeDamage(); // tiers: top rows take 2-3 hits
+      s.tweens.killTweensOf(kids); s.stageIntro = false; // skip the intro swoop
+      s.playerBullets.clear(true); // the advance-Space fired a bullet that would shoot the last invader
+      // Start the lone survivor's dive by hand and park the ship where it will miss,
+      // so the diver stays alive while the fire gate is open (the crash window)
+      s.lastDiveTime = 999999; // suppress the random dive
+      const last = s.invaderGroup.getChildren()[0];
+      last.setPosition(400, 200); // ring spawn points are off-screen; the off-screen sweep would kill it
+      last.diveAt(400, 550);
+      s.player.setPosition(50, 550);
+      s.lastEnemyShotTime = s.time.now - 2000; // open the fire gate immediately
+      s.lives = 3;
+    }
+  });
+  await page.waitForTimeout(3000); // full 1.2s dive flight, off-screen death, clear must follow
+  const t5 = await snap();
+  const diveErrors = logs.filter(l => l.startsWith('[pageerror]')).length;
+  console.log('dive no freeze :', (diveErrors === 0) ? 'PASS' : `FAIL (errors=${diveErrors})`);
+  console.log('offscreen clear:', (t5.state === 'stageclear' && t5.invaders === 0) ? 'PASS' : `FAIL (state=${t5.state} invaders=${t5.invaders})`);
+
   // Let it run: formation march + enemy fire + collisions
   await page.waitForTimeout(15000);
   const t3 = await snap();
@@ -97,7 +125,10 @@ const shot = (name) => path.join(__dirname, name); // screenshots land next to t
   console.log('flythru holds :', (scIgnored.state === 'stageclear' && scIgnored.wave === sc0.wave) ? 'PASS' : `FAIL (state=${scIgnored.state} wave=${scIgnored.wave})`);
   console.log('space starts  :', (sc1.state === 'playing' && sc1.wave > sc0.wave) ? 'PASS' : `FAIL (state=${sc1.state} wave ${sc0.wave}->${sc1.wave})`);
 
-  // Restart: force game-over if the AFK player survived, then press R
+  // Restart: the last-dive section ends on the stage-clear screen (R is dead there),
+  // so advance to a wave first if needed, then force game-over if the AFK player survived
+  await page.evaluate(() => { const s = game.scene.keys.MainScene; if (s.gameState === 'stageclear' && s.stageClearReady) s.nextWave(); });
+  await page.waitForTimeout(2000); // let the new wave's intro finish so the forced game-over freezes it mid-play
   await page.evaluate(() => { const s = game.scene.keys.MainScene; if (s.gameState === 'playing') s.gameOver(); });
   await page.keyboard.down('KeyR');
   await page.waitForTimeout(120);

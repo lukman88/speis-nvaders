@@ -141,3 +141,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Test artifacts (screenshots, diagnostics)
+test/*.png
+test/_*.js

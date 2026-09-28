@@ -1,4 +1,22 @@
 // mainScene.js
+// Enemy-side speed/fire-rate multipliers per difficulty. Easy = 25% slower than
+// the original tuning (1.0 = Normal), +5% per step above Normal.
+const DIFFICULTIES = ['EASY', 'NORMAL', 'HARD', 'VERY HARD'];
+const DIFFICULTY_MUL = [0.75, 1, 1.3, 1.6];
+// Easy halves enemy HP (fewer shots to kill) and fires 50% less often.
+// Hard/Very Hard keep base HP but fire faster.
+const DIFFICULTY_HP_MUL   = [0.5, 1, 1, 1];
+const DIFFICULTY_FIRE_MUL = [1.6, 1, 0.75, 0.55]; // multiplies shot interval: higher = fewer shots
+
+// --- High score persistence (localStorage; survives reload, degrades to 0 in private mode) ---
+const HIGHSCORE_KEY = 'si-highscore';
+function loadHighScore() {
+    try { return parseInt(localStorage.getItem(HIGHSCORE_KEY), 10) || 0; } catch (e) { return 0; }
+}
+function saveHighScore(v) {
+    try { localStorage.setItem(HIGHSCORE_KEY, String(v)); } catch (e) { /* storage unavailable */ }
+}
+
 class MainScene extends Phaser.Scene {
     constructor() {
         super('MainScene');
@@ -6,6 +24,7 @@ class MainScene extends Phaser.Scene {
 
     create() {
         this.createTextures();
+        console.info('[SI] mainScene rev: per-wave starfield + css 3d title'); // fingerprint — if the console doesn't show this after reload, the browser cached an old copy
         this.createStarfield();
 
         // --- Input (keys created once — JustDown only works on persistent key objects) ---
@@ -14,10 +33,19 @@ class MainScene extends Phaser.Scene {
         this.restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
         this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
         this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+        this.mKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
         // Browsers only allow audio after a user gesture; any keypress counts
         this.input.keyboard.on('keydown', () => sfx.unlock());
 
         this.soundOn = !sfx.isMuted(); // mute state is global, survives scene restarts
+        this.highScore = loadHighScore();
+        // Touch/mouse: drag to move the ship, hold to auto-fire. pointerX is the
+        // last touched canvas x (null until first touch); pointerHeld gates firing.
+        this.pointerX = null;
+        this.pointerHeld = false;
+        this.input.on('pointerdown', (p) => { this.pointerX = p.x; this.pointerHeld = true; });
+        this.input.on('pointermove', (p) => { if (p.isDown) this.pointerX = p.x; });
+        this.input.on('pointerup', () => { this.pointerHeld = false; });
 
         this.showTitle();
     }
@@ -28,6 +56,7 @@ class MainScene extends Phaser.Scene {
     showTitle() {
         this.gameState = 'title'; // 'title' | 'playing' | 'stageclear' | 'paused' | 'gameover'
         this.titleUI = this.add.container(0, 0);
+        this.title3dEl = document.getElementById('title-3d'); // 3D title overlay, see index.html
 
         // Classic invader logo from a pixel matrix, 2-frame walk animation
         const frames = [
@@ -73,8 +102,28 @@ class MainScene extends Phaser.Scene {
             callback: () => { this.logoFrame = 1 - this.logoFrame; draw(this.logoFrame); },
         });
 
-        this.titleUI.add(this.add.text(400, 250, 'SPACE INVADERS', { fontFamily: 'monospace', fontSize: '40px', color: '#ffffff' }).setOrigin(0.5));
+        // 3D title is a DOM overlay (index.html #title-3d): this build has no skew API and
+        // its generated-texture pipeline is buggy, so CSS perspective + text-shadow wins
+        if (this.title3dEl) this.title3dEl.classList.add('on');
+        // Difficulty picker: scales enemy march, bullets, dives and fire rate via diffMul
+        this.difficulty = 1; // default Normal
+        const refreshDiff = () => this.diffBtns.forEach((b, j) => b.setFillStyle(j === this.difficulty ? 0x1d4d33 : 0x0d2818));
+        this.diffBtns = DIFFICULTIES.map((name, i) => {
+            const x = 190 + i * 140;
+            const btn = this.add.rectangle(x, 320, 128, 34, 0x0d2818, 1).setInteractive({ useHandCursor: true });
+            // both in the container, label after button — root-level rects would render over titleUI contents
+            this.titleUI.add([btn, this.add.text(x, 320, name, { fontFamily: 'monospace', fontSize: '15px', color: '#44ff66' }).setOrigin(0.5)]);
+            btn.on('pointerover', () => btn.setFillStyle(0x2d6d53));
+            btn.on('pointerout', refreshDiff);
+            btn.on('pointerdown', () => { this.difficulty = i; refreshDiff(); });
+            return btn;
+        });
+        refreshDiff();
         this.makeButton(this.titleUI, 400, 380, 230, 56, 'START GAME', () => this.startGame(), '26px');
+        // High score (localStorage) + sound toggle; M works in any state
+        this.titleUI.add(this.add.text(400, 290, `HIGH SCORE ${String(this.highScore).padStart(5, '0')}`, { fontFamily: 'monospace', fontSize: '20px', color: '#ffd23d' }).setOrigin(0.5));
+        const sound = this.makeButton(this.titleUI, 400, 445, 230, 40, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => this.toggleSound(), '18px');
+        this.muteLabel = sound.label;
     }
 
     // Interactive button: rectangle takes the input, text is just the label
@@ -88,11 +137,22 @@ class MainScene extends Phaser.Scene {
         return { btn, label };
     }
 
+    // M key and the title/pause sound buttons all funnel here. muteLabel is a
+    // reference into a UI container (title/pause) that gets destroyed, so guard
+    // against writing into a dead Text (that threw and killed the game loop).
+    toggleSound() {
+        this.soundOn = !this.soundOn;
+        sfx.setMuted(!this.soundOn);
+        if (this.soundOn) sfx.shoot(); // confirmation blip only when unmuting
+        if (this.muteLabel && !this.muteLabel.destroyed) this.muteLabel.setText('SOUND: ' + (this.soundOn ? 'ON' : 'OFF'));
+    }
+
     startGame() {
-        if (this.logoTimer) { this.logoTimer.remove(false); this.logoTimer = null; }
-        if (this.titleUI) { this.titleUI.destroy(); this.titleUI = null; }
+        if (this.title3dEl) this.title3dEl.classList.remove('on');
+        if (this.titleUI) { this.titleUI.destroy(); this.titleUI = null; this.muteLabel = null; }
         sfx.unlock(); // pointerdown/keydown are user gestures — audio is allowed now
         sfx.shoot();
+        sfx.startMusic(); // chiptune loop until game over / quit to title
         this.physics.resume(); // showPause() pauses it
 
         // --- Game state ---
@@ -100,7 +160,11 @@ class MainScene extends Phaser.Scene {
         this.score = 0;
         this.lives = 3;
         this.waveCounter = 1;
+        this.diffMul = DIFFICULTY_MUL[this.difficulty || 0]; // enemy speed + fire-rate scale
+        this.hpMul   = DIFFICULTY_HP_MUL[this.difficulty || 0];   // enemy HP scale (easy = half)
+        this.fireMul = DIFFICULTY_FIRE_MUL[this.difficulty || 0]; // shot interval scale (easy = fewer shots)
         this.moveDirection = 1;      // 1 for moving right, -1 for moving left
+        this.freezeUntil = 0;        // hit-stop gate, see update()
 
         // --- Shooting state ---
         this.lastShotTime = 0;
@@ -116,11 +180,33 @@ class MainScene extends Phaser.Scene {
 
         // --- Bullet groups (velocity in config: groups zero child velocity on add) ---
         this.playerBullets = this.physics.add.group({ classType: BulletBullet, velocityY: -800 });
-        this.enemyBullets = this.physics.add.group({ classType: EnemyBullet, velocityY: 350 });
+        this.enemyBullets = this.physics.add.group({ classType: EnemyBullet, velocityY: 350 * this.diffMul });
 
         // --- Invaders (spawned once per wave) ---
         this.invaderGroup = this.physics.add.group();
-        this.spawnInvaders();
+        // Boss (every 3rd wave): its 6 members live in bossGroup; detached parts
+        // fall as hazards in bossHazards. beginWave() picks boss vs formation.
+        this.bossGroup = this.physics.add.group();
+        this.bossHazards = this.physics.add.group({ classType: BossHazard, velocityY: 240 * this.diffMul });
+        this.boss = null;
+        this.isBossWave = false;
+        this.beginWave();
+
+        // --- Shields: four classic destructible barriers, restored fresh each wave ---
+        this.shields = [76, 276, 476, 676].map(x => new Shield(this, x, 495));
+
+        // --- Power-ups: falling gifts that grant temporary combat boosts ---
+        this.powerUps = this.physics.add.group({ classType: PowerUp });
+        this.rapidUntil = 0;   // timestamp when rapid-fire expires
+        this.spreadUntil = 0;  // timestamp when spread-shot expires
+        this.killsSinceDrop = 0; // guaranteed-drop cadence counter
+        this.shieldUntil = 0;   // timestamp when shield-bubble expires
+        this.laserUntil = 0;    // timestamp when laser beam expires
+        this.slowMoUntil = 0;   // timestamp when slow-mo expires
+        this.ghostUntil = 0;    // timestamp when ghost mode expires
+        this.blackholeUntil = 0;// timestamp when black hole expires
+        this.shieldBubble = null; // visual dome sprite (created on pickup)
+        this.laserSprite = null;  // visual beam sprite (created on pickup)
 
         // Shared 2-frame walk cycle, synced across the whole formation
         // ponytail: fixed 400ms tick; the arcade original ties the step to march speed.
@@ -140,6 +226,8 @@ class MainScene extends Phaser.Scene {
         // --- HUD ---
         this.hudText = this.add.text(10, 8, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' });
         this.updateHud();
+        // Power-up timer: shows remaining seconds for active boosts (updated every frame)
+        this.powerupHud = this.add.text(10, 28, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffd700' });
 
         // --- Impact FX: two one-shot particle emitters, repositioned per burst ---
         this.hitFX = this.add.particles(0, 0, 'spark', {
@@ -168,23 +256,86 @@ class MainScene extends Phaser.Scene {
             const died = invader.takeDamage();
             bullet.destroy();
             if (died) {
-                this.score += 10 * this.waveCounter;
+                this.score += invader.points * this.waveCounter; // tiered: 30/20/10 by row × wave
                 sfx.boom();
                 this.burst(this.boomFX, invader.x, invader.y, invader.tint, 26); // .tint is a plain number in this build
                 this.updateHud();
-                // Wave cleared? Hand off to the stage-clear break instead of jumping straight in.
-                if (this.invaderGroup.countActive(true) === 0) {
-                    this.showStageClear();
+                // Power-up drop: 5% chance per kill, guaranteed every 15 kills
+                this.killsSinceDrop++;
+                if (this.killsSinceDrop >= 15 || Math.random() < 0.05) {
+                    this.killsSinceDrop = 0;
+                    const types = ['rapid', 'spread', 'shield', 'laser', 'slowmo', 'ghost', 'blackhole'];
+                    const type = types[Math.floor(Math.random() * types.length)];
+                    this.powerUps.create(invader.x, invader.y, type);
                 }
+                // wave-cleared hand-off happens in update() — one check for every death path
+            } else {
+                // Wounded tier: flash + tick, no score
+                sfx.hit();
+                this.tweens.add({ targets: invader, scale: 1.35, duration: 60, yoyo: true });
             }
+        });
+
+        // Boss: player bullets erode parts / the core (boss waves only; bossGroup is empty otherwise)
+        this.physics.add.overlap(this.playerBullets, this.bossGroup, (bullet, part) => {
+            if (!this.boss || !part.body) return;
+            bullet.destroy();
+            const result = this.boss.hitBullet(part);
+            if (result === 'wounded') {
+                sfx.hit();
+            } else if (result === 'detached') {
+                this.score += 50;
+                this.updateHud();
+            } // 'defeated' is handled by the boss -> onBossDefeated()
+        });
+
+        // Detached parts fall as hazards: they cost a life, same as a bullet hit
+        this.physics.add.overlap(this.player, this.bossHazards, (player, hazard) => {
+            if (this.gameState !== 'playing') return;
+            if (this.time.now < this.invincibleUntil) return;
+            hazard.destroy();
+            this.loseLife();
         });
 
         // this build calls single-body×group handlers as (sprite, groupChild)
         this.physics.add.overlap(this.player, this.enemyBullets, (player, bullet) => {
             if (bullet && bullet.body) bullet.destroy(); // absorb the bullet even while invincible
+            // Ghost mode: bullets pass through harmlessly
+            if (this.time.now < this.ghostUntil) return;
             this.burst(this.hitFX, player.x, player.y - 10, 0xff5555, 10);
             if (this.time.now < this.invincibleUntil) return;
             this.loseLife();
+        });
+
+        // Power-up collection: player overlap grants the timed effect
+        const PU_DUR = { rapid: 8000, spread: 8000, shield: 5000, laser: 3000, slowmo: 6000, ghost: 4000, blackhole: 4000 };
+        const PU_TINT = { rapid: 0xffd700, spread: 0x00e5ff, shield: 0x00e5ff, laser: 0xff3333, slowmo: 0x3366ff, ghost: 0xddddff, blackhole: 0xaa44ff };
+        this.physics.add.overlap(this.player, this.powerUps, (player, pu) => {
+            if (!pu || pu.destroyed) return;
+            const now = this.time.now;
+            const dur = PU_DUR[pu.puType] || 8000;
+            switch (pu.puType) {
+                case 'rapid': this.rapidUntil = now + dur; break;
+                case 'spread': this.spreadUntil = now + dur; break;
+                case 'shield':
+                    this.shieldUntil = now + dur;
+                    if (!this.shieldBubble) {
+                        this.shieldBubble = this.add.circle(0, 0, 28, 0x00e5ff, 0.15).setStrokeStyle(2, 0x00e5ff, 0.6).setDepth(20).setVisible(false);
+                    }
+                    break;
+                case 'laser':
+                    this.laserUntil = now + dur;
+                    if (!this.laserSprite) {
+                        this.laserSprite = this.add.rectangle(0, 0, 4, 600, 0xff3333, 0.7).setDepth(15).setVisible(false);
+                    }
+                    break;
+                case 'slowmo': this.slowMoUntil = now + dur; break;
+                case 'ghost': this.ghostUntil = now + dur; break;
+                case 'blackhole': this.blackholeUntil = now + dur; break;
+            }
+            sfx.powerup();
+            this.burst(this.boomFX, pu.x, pu.y, PU_TINT[pu.puType] || 0xffffff, 16);
+            pu.destroy();
         });
     }
 
@@ -195,7 +346,10 @@ class MainScene extends Phaser.Scene {
         emitter.explode(count);
     }
 
-    update() {
+    update(time, delta) {
+        // M mutes/unmutes in any state (title, playing, pause, game over)
+        if (Phaser.Input.Keyboard.JustDown(this.mKey)) this.toggleSound();
+
         if (this.gameState === 'title') {
             // Enter or Space both start: Space is the muscle-memory key (it fires in-game)
             if (Phaser.Input.Keyboard.JustDown(this.enterKey) || Phaser.Input.Keyboard.JustDown(this.spaceKey)) this.startGame();
@@ -222,6 +376,15 @@ class MainScene extends Phaser.Scene {
         // Esc pauses mid-play (only reachable in 'playing' at this point)
         if (Phaser.Input.Keyboard.JustDown(this.escKey)) { this.showPause(); return; }
 
+        // Hit-stop: brief full freeze after losing a life so the loss lands (see loseLife)
+        if (this.time.now < this.freezeUntil) return;
+
+
+        // 0. Wave cleared: the last invader can also die off-screen (diving arc) or by
+        //    ramming the player, neither of which goes through the bullet overlap handler.
+        //    Boss waves have no formation (invaderGroup is empty) — the boss ends its own wave.
+        if (!this.isBossWave && this.invaderGroup.countActive(true) === 0) { this.showStageClear(); return; }
+
         // 0. Background drift (scenery keeps moving even when the player waits)
         this.updateStarfield();
 
@@ -232,6 +395,9 @@ class MainScene extends Phaser.Scene {
             vx = -300;
         } else if (this.cursors.right.isDown) {
             vx = 300;
+        } else if (this.pointerX !== null && this.pointerHeld) {
+            // Touch/mouse: proportional pull toward the finger, clamped to ship speed
+            vx = Phaser.Math.Clamp((this.pointerX - this.player.x) * 6, -300, 300);
         }
         this.player.setVelocityX(vx);
         // Bank into the turn: ease the ship toward a lean in the travel direction, level out when coasting
@@ -239,19 +405,47 @@ class MainScene extends Phaser.Scene {
         this.player.setAngle(Phaser.Math.Linear(this.player.angle, targetAngle, 0.3));
 
         // 2. Player shooting (hold to auto-fire; the cooldown still caps the rate)
-        if (this.spaceKey.isDown) {
+        // Rapid power-up halves the cooldown; spread fires a 3-way fan
+        if (this.spaceKey.isDown || (this.pointerHeld && this.pointerX !== null)) { // touch: hold to auto-fire
             const now = this.time.now;
-            if (now - this.lastShotTime > this.bulletCooldown) {
-                this.playerBullets.create(this.player.x, this.player.y - 30);
+            const rapidActive = now < this.rapidUntil;
+            const cooldown = rapidActive ? this.bulletCooldown * 0.5 : this.bulletCooldown;
+            if (now - this.lastShotTime > cooldown) {
+                const spreadActive = now < this.spreadUntil;
+                if (spreadActive) {
+                    // 3-way fan: center + ±12°
+                    const baseVY = -800;
+                    const angles = [-0.21, 0, 0.21]; // radians (~±12°)
+                    for (const a of angles) {
+                        const b = this.playerBullets.create(this.player.x, this.player.y - 65);
+                        b.setVelocity(Math.sin(a) * baseVY, Math.cos(a) * baseVY);
+                    }
+                } else {
+                    this.playerBullets.create(this.player.x, this.player.y - 65);
+                }
                 this.lastShotTime = now;
                 sfx.shoot();
+            }
+        }
+
+        // 2.5 Shields: both bullet types erode tiles and stop on contact
+        for (const b of this.playerBullets.getChildren().slice()) {
+            if (!b.body) continue;
+            for (const s of this.shields) {
+                if (s.erode(b.body.left, b.body.top, b.body.width, b.body.height)) { b.destroy(); sfx.shield(); break; }
+            }
+        }
+        for (const b of this.enemyBullets.getChildren().slice()) {
+            if (!b.body) continue;
+            for (const s of this.shields) {
+                if (s.erode(b.body.left, b.body.top, b.body.width, b.body.height)) { b.destroy(); sfx.shield(); break; }
             }
         }
 
         // 3. Invader formation movement + enemy fire
         // getChildren() returns the LIVE group array — slice so any later destroy can't skew iteration
         const invaders = this.invaderGroup.getChildren().slice();
-        if (invaders.length > 0) {
+        if (invaders.length > 0 && !this.stageIntro) {
             let maxRight = -Infinity;
             let minLeft = Infinity;
             let maxBottom = -Infinity;
@@ -277,7 +471,8 @@ class MainScene extends Phaser.Scene {
                 }
             }
 
-            const speed = Invader.INITIAL_SPEED_X + (this.waveCounter - 1) * 20;
+            const slowMoMul = this.time.now < this.slowMoUntil ? 0.4 : 1;
+            const speed = (Invader.INITIAL_SPEED_X + (this.waveCounter - 1) * 20) * this.diffMul * slowMoMul;
             for (const inv of invaders) {
                 if (!inv.isAlive || inv.diving) continue;
                 inv.setVelocityX(speed * this.moveDirection);
@@ -286,17 +481,25 @@ class MainScene extends Phaser.Scene {
             const now = this.time.now;
             const alive = invaders.filter(i => i.isAlive);
 
-            // Enemy fire: rate-limited, random shooter per volley
-            if (now - this.lastEnemyShotTime >= this.enemyShotInterval && Phaser.Math.RND.frac() < 0.5) {
-                if (alive.length > 0) Phaser.Math.RND.pick(alive.filter(i => !i.diving)).attemptShoot();
+            // Enemy fire: rate-limited, random shooter per volley.
+            // Guard the empty list: once the last survivor is diving, pick([]) returns
+            // undefined and attemptShoot() throws, killing the game loop (the stage-end freeze)
+            const shooters = alive.filter(i => !i.diving);
+            if (shooters.length > 0 && now - this.lastEnemyShotTime >= this.enemyShotInterval && Phaser.Math.RND.frac() < 0.5) {
+                Phaser.Math.RND.pick(shooters).attemptShoot();
             }
 
             // Occasionally one invader breaks off and dives on the player.
             // A flashing "!" locks the strike point 700ms early so the player can dodge it.
-            if (now - this.lastDiveTime >= 5000 && Phaser.Math.RND.frac() < 0.5) {
+            if (now - this.lastDiveTime >= 5000 / this.diffMul && Phaser.Math.RND.frac() < 0.5) { // harder = more frequent dives
                 const candidates = alive.filter(i => !i.diving);
                 if (candidates.length > 0) {
-                    const inv = Phaser.Math.RND.pick(candidates);
+                    // Deeper rows dive more often (weight 1+row): "the lower they go, the scarier they get"
+                    let total = 0;
+                    for (const c of candidates) total += 1 + c.row;
+                    let r = Phaser.Math.RND.frac() * total;
+                    let inv = candidates[candidates.length - 1];
+                    for (const c of candidates) { r -= 1 + c.row; if (r <= 0) { inv = c; break; } }
                     const tx = this.player.x, ty = this.player.y; // lock the strike point when the warning shows
                     this.lastDiveTime = now;
                     const warn = this.add.text(tx, ty - 50, '!', { fontFamily: 'monospace', fontSize: '32px', color: '#ff4444' })
@@ -313,10 +516,11 @@ class MainScene extends Phaser.Scene {
 
             // Resolve dives: tumble through the air, hit the player, or fade off-screen
             const H = this.sys.game.config.height;
+            const W = this.sys.game.config.width;
             for (const inv of invaders) {
                 if (!inv.isAlive || !inv.diving) continue;
                 inv.setAngle(Phaser.Math.RadToDeg(Math.atan2(inv.body.velocity.y, inv.body.velocity.x)) - 90);
-                if (inv.y > H + 40 || inv.x < -40 || inv.x > H + 40) { inv.takeDamage(); continue; }
+                if (inv.y > H + 40 || inv.x < -40 || inv.x > W + 40) { inv.takeDamage(); continue; }
                 if (Math.hypot(inv.x - this.player.x, inv.y - this.player.y) < 26) {
                     inv.takeDamage();
                     if (this.time.now < this.invincibleUntil) this.burst(this.hitFX, inv.x, inv.y, 0xff5555, 10); // blocked by the shield, no damage
@@ -325,12 +529,110 @@ class MainScene extends Phaser.Scene {
             }
         }
 
+        // 3b. Boss movement + attacks (boss waves have no formation, so the block above is skipped)
+        if (this.isBossWave && this.boss && this.boss.alive) {
+            this.boss.update(this.time.now, delta);
+        }
+
+        // 3c. Power-ups: drift, pulse, vanish off the bottom
+        for (const pu of this.powerUps.getChildren().slice()) {
+            if (pu.destroyed) continue;
+            pu.update(this.time.now);
+        }
+
+        // 3d. Power-up HUD: show remaining seconds for active boosts
+        const now = this.time.now;
+        {
+            const parts = [];
+            const r = Math.max(0, this.rapidUntil - now);
+            const s = Math.max(0, this.spreadUntil - now);
+            const sh = Math.max(0, this.shieldUntil - now);
+            const l = Math.max(0, this.laserUntil - now);
+            const sm = Math.max(0, this.slowMoUntil - now);
+            const g = Math.max(0, this.ghostUntil - now);
+            const bh = Math.max(0, this.blackholeUntil - now);
+            if (r > 0) parts.push('RAPID');
+            if (s > 0) parts.push('SPREAD');
+            if (sh > 0) parts.push('SHIELD');
+            if (l > 0) parts.push('LASER');
+            if (sm > 0) parts.push('SLOW-MO');
+            if (g > 0) parts.push('GHOST');
+            if (bh > 0) parts.push('BLACK HOLE');
+            if (parts.length > 0) {
+                const secs = Math.ceil(Math.max(r, s, sh, l, sm, g, bh) / 1000);
+                this.powerupHud.setText(parts.join(' + ') + ` ${secs}s`);
+            } else {
+                this.powerupHud.setText('');
+            }
+        }
+
+        // 3e. Active power-up effects
+        const now2 = this.time.now;
+        // Shield bubble: dome follows the player + grants invincibility
+        const shieldActive = now2 < this.shieldUntil;
+        if (this.shieldBubble) {
+            if (shieldActive) {
+                this.shieldBubble.setVisible(true).setPosition(this.player.x, this.player.y);
+                this.invincibleUntil = Math.max(this.invincibleUntil, this.shieldUntil);
+            } else {
+                this.shieldBubble.setVisible(false);
+            }
+        }
+        // Ghost: ship becomes translucent; enemy bullets pass through (handled in overlap)
+        const ghostActive = now2 < this.ghostUntil;
+        this.player.setAlpha(ghostActive ? 0.4 : 1);
+        // Laser beam: vertical column from top of screen to the ship; kills anything in its path
+        const laserActive = now2 < this.laserUntil;
+        if (this.laserSprite) {
+            if (laserActive) {
+                this.laserSprite.setVisible(true).setPosition(this.player.x, this.player.y - 300);
+                // Kill any invader whose body overlaps the beam column
+                const beamL = this.player.x - 6, beamR = this.player.x + 6;
+                for (const inv of this.invaderGroup.getChildren().slice()) {
+                    if (!inv.isAlive || !inv.body) continue;
+                    if (inv.body.right > beamL && inv.body.left < beamR) {
+                        inv.takeDamage();
+                        this.burst(this.boomFX, inv.x, inv.y, 0xff6644, 14);
+                    }
+                }
+            } else {
+                this.laserSprite.setVisible(false);
+            }
+        }
+        // Black hole: pull all living invaders toward the screen center
+        const bhActive = now2 < this.blackholeUntil;
+        if (bhActive) {
+            const cx = this.sys.game.config.width / 2, cy = this.sys.game.config.height / 2;
+            for (const inv of this.invaderGroup.getChildren().slice()) {
+                if (!inv.isAlive || !inv.body || inv.diving) continue;
+                const dx = cx - inv.x, dy = cy - inv.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < 100) continue; // stop pulling near center to avoid full convergence
+                const pull = 120; // px/s attraction
+                inv.setVelocityX((dx / dist) * pull);
+                inv.setVelocityY((dy / dist) * pull);
+            }
+        }
+
+
         // 4. Bullet cleanup off-screen (slice: destroy() splices the live group array)
         for (const b of this.playerBullets.getChildren().slice()) if (b.isOutOfBounds()) b.destroy();
         for (const b of this.enemyBullets.getChildren().slice()) {
             if (b.isOutOfBounds()) b.destroy();
             // Arc shots tumble through the air: point the sprite along its velocity
             else if (b.isArc) b.setAngle(Phaser.Math.RadToDeg(Math.atan2(b.body.velocity.y, b.body.velocity.x)) - 90);
+        }
+
+        // 5. Detached-part hazards: fall, erode shields on contact, vanish off the bottom
+        for (const h of this.bossHazards.getChildren().slice()) {
+            if (h.isOutOfBounds()) { h.destroy(); continue; }
+            for (const sh of this.shields) {
+                if (sh.erode(h.x, h.y + h.displayHeight / 2)) {
+                    h.destroy();
+                    sfx.shield();
+                    break;
+                }
+            }
         }
     }
 
@@ -342,30 +644,74 @@ class MainScene extends Phaser.Scene {
     spawnInvaders() {
         this.invaderGroup.clear(true);
 
-        const startX = (this.sys.game.config.width - 1) / 2;
-        const startY = 150;
+        const W = this.sys.game.config.width;
+        const H = this.sys.game.config.height;
+        const startX = (W - 1) / 2;
+        const startY = 80;
         const spacingX = 70; // Horizontal gap between invader columns
         const spacingY = 40; // Vertical gap between invader rows
         const rowColors = [0xffffff, 0x66ffff, 0x66ff99, 0xffaa33, 0xff5544];
 
+        // Stage intro: invaders start on a ring off the screen edge and swoop into their slots
+        const slots = [];
         for (let r = 0; r < Invader.ROWS; ++r) {
             for (let c = 0; c < Invader.COLS; ++c) {
-                // Calculate initial positions relative to center-aligned grid
-                const x = startX - ((Invader.COLS - 1) * spacingX / 2) + (c * spacingX);
-                const y = startY + (r * spacingY);
-
-                const invader = new Invader(this, x, y, 'invader');
-                invader.addToDisplayList(this.sys.displayList); // `new` + group.add never renders
-                invader.setOrigin(0.5);
-                invader.setTint(rowColors[r % rowColors.length]);
-                this.invaderGroup.add(invader);
+                // Slot positions relative to center-aligned grid
+                slots.push([startX - ((Invader.COLS - 1) * spacingX / 2) + (c * spacingX), startY + (r * spacingY)]);
             }
         }
+        this.stageIntro = true;
+        const N = slots.length;
+        const R = Math.max(W, H) * 0.62; // ring pokes past every screen edge
+        slots.forEach(([sx, sy], i) => {
+            const a = (i / N) * Math.PI * 2;
+            const invader = new Invader(this, W / 2 + Math.cos(a) * R, H / 2 + Math.sin(a) * R, 'invader', Math.floor(i / Invader.COLS));
+            invader.addToDisplayList(this.sys.displayList); // `new` + group.add never renders
+            invader.setOrigin(0.5);
+            invader.setTint(rowColors[Math.floor(i / Invader.COLS) % rowColors.length]);
+            invader.hp = Math.max(1, Math.ceil(invader.hp * this.hpMul)); // easy = fewer shots to kill
+            this.invaderGroup.add(invader);
+            this.tweens.add({
+                targets: invader, x: sx, y: sy, duration: 700, ease: 'Cubic.In', delay: i * 20,
+                onComplete: i === N - 1 ? () => { this.stageIntro = false; } : undefined,
+            });
+        });
 
         // Reset per-wave state
         this.moveDirection = 1;
         this.lastEnemyShotTime = this.time.now;
-        this.enemyShotInterval = Math.max(300, 1000 - (this.waveCounter - 1) * 150);
+        this.enemyShotInterval = Math.max(300, (1000 - (this.waveCounter - 1) * 150) / this.diffMul * this.fireMul);
+    }
+
+    // Wave dispatcher: every 3rd wave (3, 6, 9...) is a boss fight; the rest are
+    // normal formations. Regular waves on non-multiples are unchanged.
+    beginWave() {
+        if (this.waveCounter % 3 === 0) this.spawnBoss();
+        else this.spawnInvaders();
+    }
+
+    spawnBoss() {
+        this.isBossWave = true;
+        // Appearance = which boss fight this is (1st, 2nd, ...) so wave 3 and wave 6 differ
+        const appearance = Math.floor((this.waveCounter - 3) / 3);
+        this.boss = new Boss(this, appearance, this.waveCounter);
+        sfx.bossAppear();
+        sfx.startMusic('boss'); // high-stress track for the fight
+        this.cameras.main.shake(160, 0.02); // the arena shudders as it arrives
+        // Reset the shared enemy-fire bookkeeping so the dive kamikaze is well-spaced
+        this.lastEnemyShotTime = this.time.now;
+        this.enemyShotInterval = Math.max(300, (1000 - (this.waveCounter - 1) * 150) / this.diffMul * this.fireMul);
+    }
+
+    // Called by the boss when its core is destroyed: ends the wave.
+    onBossDefeated() {
+        this.score += 300; // boss bounty
+        this.updateHud();
+        this.isBossWave = false;
+        this.boss = null;
+        this.bossGroup.clear(true);
+        sfx.startMusic('normal'); // back to the menacing loop
+        this.showStageClear();
     }
 
     showStageClear() {
@@ -374,6 +720,13 @@ class MainScene extends Phaser.Scene {
         // Clear leftover projectiles so nothing keeps hitting the ship during the breather.
         this.playerBullets.clear(true);
         this.enemyBullets.clear(true);
+        if (this.laserSprite) this.laserSprite.setVisible(false);
+        this.tweens.killTweensOf(this.invaderGroup.getChildren()); // stage-intro swoop may still be running
+        this.stageIntro = false;
+        // Boss wave: sweep any leftover boss + falling hazards (usually already gone on defeat)
+        this.bossHazards.clear(true);
+        if (this.boss) { this.boss.members.forEach(mm => { if (mm.body) mm.destroy(); }); this.bossGroup.clear(true); this.boss = null; }
+        this.isBossWave = false;
 
         // Fly-through: launch the ship off the top of the screen trailing afterburner fire.
         // Body disabled so world-bounds can't clamp it, and collisions stay quiet while it's gone.
@@ -436,14 +789,23 @@ class MainScene extends Phaser.Scene {
         this.player.setPosition(400, 550);
         this.player.body.enable = true;
         this.waveCounter++;
-        this.spawnInvaders();
+        // Shields persist across levels; only restored fresh after a boss wave
+        if ((this.waveCounter - 1) % 3 === 0) {
+            if (this.shields) this.shields.forEach(s => s.destroy());
+            this.shields = [76, 276, 476, 676].map(x => new Shield(this, x, 495));
+        }
+        // Clear lingering power-up sprites; active boost timers carry over to the next wave
+        this.powerUps.clear(true);
+        this.killsSinceDrop = 0;
+        this.createStarfield(); // new planet, new sky
+        this.beginWave(); // boss (every 3rd wave) or a normal formation
         this.updateHud();
     }
 
     // --- HUD / Game State Helpers ---
 
     updateHud() {
-        this.hudText.setText(`SCORE ${String(this.score).padStart(5, '0')}   LIVES ${this.lives}   WAVE ${this.waveCounter}`);
+        this.hudText.setText(`SCORE ${String(this.score).padStart(5, '0')}   HI ${String(Math.max(this.highScore, this.score)).padStart(5, '0')}   LIVES ${this.lives}   WAVE ${this.waveCounter}`);
     }
 
     loseLife() {
@@ -452,10 +814,19 @@ class MainScene extends Phaser.Scene {
         this.updateHud();
         // The ship takes a chunk out of it: green debris flies off on every hit
         this.burst(this.boomFX, this.player.x, this.player.y, 0x44ff66, 20);
+        this.cameras.main.shake(200, 0.03);
         if (this.lives <= 0) {
             sfx.damage();
             this.gameOver();
         } else {
+            // Hit-stop: 70ms full freeze so the loss lands. Physics pauses for the
+            // same window; it only resumes if we're still playing and not paused
+            // (invaderAnimOff is the pause flag — showPause() sets it).
+            this.freezeUntil = this.time.now + 70;
+            this.physics.pause();
+            this.time.delayedCall(70, () => {
+                if (this.gameState === 'playing' && !this.invaderAnimOff) this.physics.resume();
+            });
             // Brief invincibility so a volley of bullets can't drain all lives at once.
             // Blink + shrink instead of flat 40% alpha: the ship reads as falling apart
             this.invincibleUntil = this.time.now + 1500;
@@ -478,17 +849,13 @@ class MainScene extends Phaser.Scene {
         this.pauseUI.add(this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75));
         this.pauseUI.add(this.add.text(400, 160, 'PAUSED', { fontFamily: 'monospace', fontSize: '40px', color: '#ffffff' }).setOrigin(0.5));
         this.makeButton(this.pauseUI, 400, 270, 300, 56, 'RESUME', () => this.resumeGame());
-        const sound = this.makeButton(this.pauseUI, 400, 350, 300, 56, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => {
-            this.soundOn = !this.soundOn;
-            sfx.setMuted(!this.soundOn);
-            sound.label.setText('SOUND: ' + (this.soundOn ? 'ON' : 'OFF'));
-            if (this.soundOn) sfx.shoot(); // confirmation blip only when unmuting
-        });
-        this.makeButton(this.pauseUI, 400, 430, 300, 56, 'QUIT TO TITLE', () => this.scene.restart());
+        const sound = this.makeButton(this.pauseUI, 400, 350, 300, 56, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => this.toggleSound());
+        this.muteLabel = sound.label;
+        this.makeButton(this.pauseUI, 400, 430, 300, 56, 'QUIT TO TITLE', () => { sfx.stopMusic(); this.scene.restart(); });
     }
 
     resumeGame() {
-        if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; }
+        if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; this.muteLabel = null; }
         this.gameState = 'playing';
         this.physics.resume();
         this.invaderAnimOff = false;
@@ -497,20 +864,31 @@ class MainScene extends Phaser.Scene {
     gameOver() {
         if (this.gameState !== 'playing') return;
         this.gameState = 'gameover';
+        sfx.stopMusic();
         sfx.gameover();
+
+        // High score: persist the best run (localStorage)
+        const isNewBest = this.score > this.highScore;
+        if (isNewBest) { this.highScore = this.score; saveHighScore(this.highScore); }
 
         // Freeze everything on screen
         this.playerBullets.clear(true);
         this.enemyBullets.clear(true);
+        this.tweens.killTweensOf(this.invaderGroup.getChildren()); // stop the stage-intro swoop too
+        this.stageIntro = false;
         this.invaderGroup.getChildren().forEach(i => i.setVelocity(0, 0));
         this.invaderAnimOff = true; // formation stands still on the game-over screen
+        // Boss: stand it still and clear any falling hazards
+        this.bossHazards.clear(true);
+        if (this.boss) this.boss.members.forEach(mm => { if (mm.body) mm.setVelocity(0, 0); });
+        this.isBossWave = false;
         this.player.setVelocity(0, 0);
 
         // Dim the frozen battlefield so the text reads over it. setDepth(100) like the pause
         // overlay: invaders/ship carry their own depth and would otherwise sort above it.
         this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75).setDepth(100);
         this.add.text(400, 280, 'GAME OVER', { fontFamily: 'monospace', fontSize: '48px', color: '#ff5544' }).setOrigin(0.5).setDepth(100);
-        this.add.text(400, 330, `FINAL SCORE ${this.score}\nPress R to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setDepth(100);
+        this.add.text(400, 330, `FINAL SCORE ${this.score}\nHIGH SCORE ${String(this.highScore).padStart(5, '0')}${isNewBest ? '  NEW BEST!' : ''}\nPress R to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setDepth(100);
     }
 
     // --- Procedural Textures (no external assets needed) ---
@@ -591,11 +969,137 @@ class MainScene extends Phaser.Scene {
         g.generateTexture('enemy-bullet', 6, 12);
         g.destroy();
 
+        // Boss core (72 x 44) — menacing hull, glowing center, twin eyes. White for per-appearance tint.
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillPoints([{ x: 36, y: 0 }, { x: 72, y: 14 }, { x: 72, y: 30 }, { x: 48, y: 44 }, { x: 24, y: 44 }, { x: 0, y: 30 }, { x: 0, y: 14 }], true); // hull
+        g.fillStyle(0x222222, 1);
+        g.fillEllipse(36, 24, 22, 16);   // dark core face
+        g.fillStyle(0xffffff, 1);
+        g.fillRect(20, 16, 12, 8);       // left eye
+        g.fillRect(40, 16, 12, 8);       // right eye
+        g.fillRect(12, 34, 48, 4);       // jaw line
+        g.generateTexture('boss-core', 72, 44);
+        g.destroy();
+
+        // Boss part / turret (38 x 30) — a chunk of armor that peels off.
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillRect(2, 6, 34, 18);        // armor slab
+        g.fillRect(14, 0, 10, 8);        // top fin
+        g.fillStyle(0x333333, 1);
+        g.fillCircle(19, 15, 5);         // turret barrel
+        g.generateTexture('boss-part', 38, 30);
+        g.destroy();
+
+        // Boss hazard (20 x 20) — a spiky falling chunk (mini-bomb).
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillPoints([{ x: 10, y: 0 }, { x: 20, y: 10 }, { x: 10, y: 20 }, { x: 0, y: 10 }], true); // diamond
+        g.fillRect(8, 8, 4, 4);          // hot center
+        g.generateTexture('boss-hazard', 20, 20);
+        g.destroy();
+
         // Spark (4 x 4) — white so per-burst tinting works (small texture, renders fine)
         g = this.make.graphics({ add: false });
         g.fillStyle(0xffffff, 1);
         g.fillRect(0, 0, 4, 4);
         g.generateTexture('spark', 4, 4);
+        g.destroy();
+
+        // Power-up: rapid fire (24 x 24) — gold gift box with lightning bolt
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x2a1a00, 1);
+        g.fillRect(2, 2, 20, 20);       // box body
+        g.fillStyle(0xffd700, 1);
+        g.fillRect(2, 2, 20, 4);        // lid
+        g.fillRect(10, 2, 4, 20);       // vertical ribbon
+        g.fillRect(2, 10, 20, 4);       // horizontal ribbon
+        g.fillStyle(0xffff80, 1);
+        g.fillPoints([{ x: 13, y: 5 }, { x: 9, y: 12 }, { x: 12, y: 12 }, { x: 10, y: 18 }, { x: 16, y: 11 }, { x: 13, y: 11 }], true); // lightning bolt
+        g.generateTexture('powerup-rapid', 24, 24);
+        g.destroy();
+
+        // Power-up: spread shot (24 x 24) — cyan gift box with fan arrows
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x001a2a, 1);
+        g.fillRect(2, 2, 20, 20);       // box body
+        g.fillStyle(0x00e5ff, 1);
+        g.fillRect(2, 2, 20, 4);        // lid
+        g.fillRect(10, 2, 4, 20);       // vertical ribbon
+        g.fillRect(2, 10, 20, 4);       // horizontal ribbon
+        g.fillStyle(0x80f0ff, 1);
+        g.fillTriangle(12, 16, 6, 8, 9, 8);   // left arrow
+        g.fillTriangle(12, 16, 18, 8, 15, 8); // right arrow
+        g.fillTriangle(12, 16, 12, 6, 9, 9);  // center arrow
+        g.generateTexture('powerup-spread', 24, 24);
+        g.destroy();
+
+        // Power-up: shield bubble (24 x 24) — dark box + cyan dome
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x001520, 1);
+        g.fillRect(2, 2, 20, 20);
+        g.fillStyle(0x00e5ff, 1);
+        g.fillRect(2, 2, 20, 3);        // lid
+        g.fillCircle(12, 14, 7);        // dome
+        g.fillStyle(0x80f0ff, 1);
+        g.fillCircle(12, 14, 4);        // inner glow
+        g.generateTexture('powerup-shield', 24, 24);
+        g.destroy();
+
+        // Power-up: laser beam (24 x 24) — dark box + red vertical beam
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x200000, 1);
+        g.fillRect(2, 2, 20, 20);
+        g.fillStyle(0xff3333, 1);
+        g.fillRect(2, 2, 20, 3);        // lid
+        g.fillRect(10, 6, 4, 14);       // beam column
+        g.fillStyle(0xffaaaa, 1);
+        g.fillRect(11, 6, 2, 14);       // beam core
+        g.generateTexture('powerup-laser', 24, 24);
+        g.destroy();
+
+        // Power-up: slow-mo (24 x 24) — dark box + blue clock
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x000a20, 1);
+        g.fillRect(2, 2, 20, 20);
+        g.fillStyle(0x3366ff, 1);
+        g.fillRect(2, 2, 20, 3);        // lid
+        g.strokeCircle(12, 14, 7, 0x6699ff, 2); // clock face
+        g.fillCircle(12, 14, 1.5, 0x99ccff);    // center dot
+        g.fillStyle(0x99ccff, 1);
+        g.fillRect(11, 9, 2, 5);        // clock hand (up)
+        g.fillRect(12, 13, 5, 2);       // clock hand (right)
+        g.generateTexture('powerup-slowmo', 24, 24);
+        g.destroy();
+
+        // Power-up: ghost (24 x 24) — dark box + white ghost shape
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x0a0a14, 1);
+        g.fillRect(2, 2, 20, 20);
+        g.fillStyle(0x8888aa, 1);
+        g.fillRect(2, 2, 20, 3);        // lid
+        g.fillStyle(0xddddff, 0.8);
+        g.fillCircle(12, 12, 6);        // ghost head
+        g.fillRect(6, 12, 12, 8);       // ghost body
+        g.fillStyle(0x222244, 1);
+        g.fillCircle(10, 12, 1.5);      // left eye
+        g.fillCircle(14, 12, 1.5);      // right eye
+        g.generateTexture('powerup-ghost', 24, 24);
+        g.destroy();
+
+        // Power-up: black hole (24 x 24) — dark box + purple swirl
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x0a0014, 1);
+        g.fillRect(2, 2, 20, 20);
+        g.fillStyle(0x6600aa, 1);
+        g.fillRect(2, 2, 20, 3);        // lid
+        g.strokeCircle(12, 14, 7, 0xaa44ff, 2);  // outer ring
+        g.strokeCircle(12, 14, 4, 0xcc88ff, 2);  // mid ring
+        g.fillCircle(12, 14, 2, 0x000000);       // event horizon
+        g.fillStyle(0xddaaff, 1);
+        g.fillCircle(14, 11, 1);        // accent dot
+        g.generateTexture('powerup-blackhole', 24, 24);
         g.destroy();
     }
 
@@ -606,26 +1110,75 @@ class MainScene extends Phaser.Scene {
     createStarfield() {
         const W = this.sys.game.config.width;
         const H = this.sys.game.config.height;
+        // Destroy + recreate each wave: reusing the Graphics object carries its
+        // internal WebGL texture across the transition, and some GPU drivers
+        // corrupt that texture when other display objects are destroyed/recreated
+        // during the same frame (shield swap, stage-clear UI teardown). A fresh
+        // allocation avoids the issue entirely; cost is one texture upload.
+        if (this.starSprite) { this.starSprite.destroy(); this.starSprite = null; }
         this.starSprite = this.add.graphics().setDepth(-100);
-        this.starData = [];
-        for (let i = 0; i < 150; i++) {
-            this.starData.push({
-                x: Math.floor(Math.random() * W),
-                y: Math.floor(Math.random() * H),
-                size: Math.random() < 0.75 ? 1 : 2,
-                alpha: 0.4 + Math.random() * 0.6,
+        // Per-planet sky: seeded by the wave so each stage gets a different star layout,
+        // tint and drift speed — feels like arriving somewhere new between stages
+        // (waveCounter is only initialized in startGame, so create() would seed with NaN)
+        const w = this.waveCounter || 1;
+        let seed = ((w - 1) * 7919 + 17) >>> 0;
+        const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+        this.starTint = [0xffffff, 0x7fb2ff, 0xffb35c, 0x6cff8f, 0xff7fb8, 0xb58cff][(w - 1) % 6]; // wave 1 keeps the original white stars
+        this.starDrift = 0.2 + rnd() * 0.3;
+        // 1–2 washed-out planet discs for depth, same seeded randomness as the stars.
+        // Muted hues at low alpha so they read as distant objects, not sprites.
+        const planetHues = [0x5c5a2e, 0x2e4a6b, 0x6b2e2e, 0x4a4a52]; // yellow, blue, red, gray
+        const pCount = 1 + (rnd() < 0.5 ? 1 : 0);
+        this.planetData = [];
+        for (let i = 0; i < pCount; i++) {
+            this.planetData.push({
+                x: rnd() * W,
+                y: rnd() * H,
+                r: 25 + rnd() * 45,
+                color: planetHues[Math.floor(rnd() * planetHues.length)],
+                alpha: 0.09 + rnd() * 0.07,
             });
         }
+        this.starData = [];
+        const count = 120 + Math.floor(rnd() * 60); // 120–179 stars per planet
+        for (let i = 0; i < count; i++) {
+            this.starData.push({
+                x: Math.floor(rnd() * W),
+                y: Math.floor(rnd() * H),
+                size: rnd() < 0.75 ? 1 : 2,
+                alpha: 0.4 + rnd() * 0.6,
+            });
+        }
+        this.updateStarfield(); // first draw — states that don't tick the drift (title) still show stars
+    }
+
+    // Cheap 3D sphere: 5 stacked discs whose alphas add up center-wards (radial falloff),
+    // a background-colored shadow disc offset to the lower right, and a tiny lit highlight.
+    drawPlanet(g, pl) {
+        for (let i = 5; i >= 1; i--) { // largest first; inner discs brighten the core
+            g.fillStyle(pl.color, pl.alpha * (0.15 * i));
+            g.fillCircle(pl.x, pl.y, pl.r * (i / 5));
+        }
+        g.fillStyle(0x050514, Math.min(0.3, pl.alpha * 1.8)); // night side, bottom-right
+        g.fillCircle(pl.x + pl.r * 0.25, pl.y + pl.r * 0.25, pl.r * 0.9);
+        g.fillStyle(0xffffff, pl.alpha * 0.4);                // sunlit rim, top-left
+        g.fillCircle(pl.x - pl.r * 0.35, pl.y - pl.r * 0.35, pl.r * 0.28);
     }
 
     updateStarfield() {
+        const W = this.sys.game.config.width;
         const H = this.sys.game.config.height;
         const g = this.starSprite;
         g.clear();
+        for (const pl of this.planetData) {
+            pl.y += this.starDrift * 0.5; // half speed: parallax, planets sit behind the stars
+            if (pl.y - pl.r > H) { pl.y = -pl.r; pl.x = Math.random() * W; } // re-enter at a new x
+            this.drawPlanet(g, pl);
+        }
         for (const st of this.starData) {
-            st.y += 0.3;
+            st.y += this.starDrift;
             if (st.y >= H) st.y -= H;
-            g.fillStyle(0xffffff, st.alpha);
+            g.fillStyle(this.starTint, st.alpha);
             g.fillRect(st.x, Math.floor(st.y), st.size, st.size);
         }
     }
