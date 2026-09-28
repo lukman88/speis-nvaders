@@ -139,25 +139,79 @@ class MainScene extends Phaser.Scene {
         // 3D title is a DOM overlay (index.html #title-3d): this build has no skew API and
         // its generated-texture pipeline is buggy, so CSS perspective + text-shadow wins
         if (this.title3dEl) this.title3dEl.classList.add('on');
-        // Difficulty picker: scales enemy march, bullets, dives and fire rate via diffMul
-        this.difficulty = 1; // default Normal
-        const refreshDiff = () => this.diffBtns.forEach((b, j) => b.setFillStyle(j === this.difficulty ? 0x1d4d33 : 0x0d2818));
+        // --- Difficulty picker (neon arcade style) ---
+        this.difficulty = 1;
+        const diffGlow = 0x2de1ff; // cyan
+        const refreshDiff = () => {
+            this.diffBtns.forEach((b, j) => {
+                const sel = j === this.difficulty;
+                b.rect.setStrokeStyle(2, sel ? diffGlow : 0x1a3a4a, sel ? 1 : 0.5);
+                b.rect.setFillStyle(sel ? 0x0a2a3a : 0x0a1520);
+                b.glow.fillStyle(diffGlow, sel ? 0.25 : 0.06);
+                b.glow.fillRoundedRect(190 + j * 140 - 70 - 4, 320 - 26, 148, 52, 6);
+                b.label.setColor(sel ? '#fff' : '#4a8a9a');
+            });
+        };
         this.diffBtns = DIFFICULTIES.map((name, i) => {
             const x = 190 + i * 140;
-            const btn = this.add.rectangle(x, 320, 128, 44, 0x0d2818, 1).setInteractive({ useHandCursor: true });
-            // both in the container, label after button — root-level rects would render over titleUI contents
-            this.titleUI.add([btn, this.add.text(x, 320, name, { fontFamily: 'monospace', fontSize: '16px', color: '#44ff66' }).setOrigin(0.5)]);
-            btn.on('pointerover', () => btn.setFillStyle(0x2d6d53));
-            btn.on('pointerout', refreshDiff);
-            btn.on('pointerdown', () => { this.difficulty = i; refreshDiff(); });
-            return btn;
+            const glow = this.add.graphics();
+            glow.fillStyle(diffGlow, 0.06);
+            glow.fillRoundedRect(x - 70 - 4, 320 - 26, 148, 52, 6);
+            const rect = this.add.rectangle(x, 320, 128, 44, 0x0a1520, 1)
+                .setStrokeStyle(2, 0x1a3a4a, 0.5)
+                .setInteractive({ useHandCursor: true });
+            const label = this.add.text(x, 320, name, { fontFamily: 'monospace', fontSize: '15px', color: '#4a8a9a', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
+            rect.on('pointerover', () => { if (i !== this.difficulty) { rect.setFillStyle(0x0f2535); rect.setStrokeStyle(2, 0x2de1ff, 0.7); } });
+            rect.on('pointerout', refreshDiff);
+            rect.on('pointerdown', () => { this.difficulty = i; refreshDiff(); sfx.shoot(); });
+            this.titleUI.add([glow, rect, label]);
+            return { rect, label, glow };
         });
         refreshDiff();
-        this.makeButton(this.titleUI, 400, 380, 240, 64, 'START GAME', () => this.startGame(), '26px');
-        // High score (localStorage) + sound toggle; M works in any state
-        this.titleUI.add(this.add.text(400, 290, `HIGH SCORE ${String(this.highScore).padStart(5, '0')}`, { fontFamily: 'monospace', fontSize: '20px', color: '#ffd23d' }).setOrigin(0.5));
-        const sound = this.makeButton(this.titleUI, 400, 450, 240, 48, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => this.toggleSound(), '18px');
-        this.muteLabel = sound.label;
+
+        // --- START GAME (pulsing green neon) ---
+        const startGlow = this.add.graphics();
+        startGlow.fillStyle(0x44ff66, 0.2);
+        startGlow.fillRoundedRect(400 - 128, 380 - 36, 264, 76, 8);
+        const startBtn = this.add.rectangle(400, 380, 240, 64, 0x0a1a10, 1)
+            .setStrokeStyle(3, 0x44ff66, 0.9)
+            .setInteractive({ useHandCursor: true });
+        const startShadow = this.add.text(400, 382, 'START GAME', { fontFamily: 'monospace', fontSize: '28px', color: 0x44ff66, stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setAlpha(0.4);
+        const startLabel = this.add.text(400, 380, 'START GAME', { fontFamily: 'monospace', fontSize: '28px', color: '#fff', stroke: '#003311', strokeThickness: 2 }).setOrigin(0.5);
+        startBtn.on('pointerover', () => {
+            startBtn.setFillStyle(0x1a3a28);
+            startBtn.setStrokeStyle(3, 0x66ff88, 1);
+            startGlow.fillStyle(0x44ff66, 0.35);
+            startGlow.fillRoundedRect(400 - 130, 380 - 38, 268, 80, 10);
+        });
+        startBtn.on('pointerout', () => {
+            startBtn.setFillStyle(0x0a1a10);
+            startBtn.setStrokeStyle(3, 0x44ff66, 0.9);
+            startGlow.fillStyle(0x44ff66, 0.2);
+            startGlow.fillRoundedRect(400 - 128, 380 - 36, 264, 76, 8);
+        });
+        startBtn.on('pointerdown', () => this.startGame());
+        // Pulsing glow animation
+        this.tweens.add({ targets: startGlow, alpha: 0.5, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+        this.titleUI.add([startGlow, startBtn, startShadow, startLabel]);
+
+        // --- High score ---
+        this.titleUI.add(this.add.text(400, 285, 'HIGH SCORE', { fontFamily: 'monospace', fontSize: '14px', color: '#886622', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5));
+        this.titleUI.add(this.add.text(400, 302, String(this.highScore).padStart(5, '0'), { fontFamily: 'monospace', fontSize: '22px', color: '#ffd23d', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
+
+        // --- Sound toggle (magenta accent) ---
+        const sndGlow = this.add.graphics();
+        sndGlow.fillStyle(0xff2d78, 0.08);
+        sndGlow.fillRoundedRect(400 - 124, 450 - 26, 252, 52, 6);
+        const sndBtn = this.add.rectangle(400, 450, 240, 48, 0x1a0a12, 1)
+            .setStrokeStyle(2, 0xff2d78, 0.6)
+            .setInteractive({ useHandCursor: true });
+        const sndLabel = this.add.text(400, 450, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), { fontFamily: 'monospace', fontSize: '18px', color: this.soundOn ? '#ff6699' : '#663344', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
+        sndBtn.on('pointerover', () => { sndBtn.setFillStyle(0x2a1520); sndBtn.setStrokeStyle(2, 0xff4488, 0.9); });
+        sndBtn.on('pointerout', () => { sndBtn.setFillStyle(0x1a0a12); sndBtn.setStrokeStyle(2, 0xff2d78, 0.6); sndLabel.setColor(this.soundOn ? '#ff6699' : '#663344'); });
+        sndBtn.on('pointerdown', () => this.toggleSound());
+        this.titleUI.add([sndGlow, sndBtn, sndLabel]);
+        this.muteLabel = sndLabel;
     }
 
     // Interactive button: rectangle takes the input, text is just the label
@@ -178,7 +232,11 @@ class MainScene extends Phaser.Scene {
         this.soundOn = !this.soundOn;
         sfx.setMuted(!this.soundOn);
         if (this.soundOn) sfx.shoot(); // confirmation blip only when unmuting
-        if (this.muteLabel && !this.muteLabel.destroyed) this.muteLabel.setText('SOUND: ' + (this.soundOn ? 'ON' : 'OFF'));
+        if (this.muteLabel && !this.muteLabel.destroyed) {
+            this.muteLabel.setText('SOUND: ' + (this.soundOn ? 'ON' : 'OFF'));
+            this.muteLabel.setColor(this.soundOn ? '#ff6699' : '#663344');
+        }
+
         const mb = document.getElementById('mute-btn');
         if (mb) mb.textContent = this.soundOn ? '\u{1F50A}' : '\u{1F507}';
     }
