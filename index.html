@@ -128,7 +128,6 @@
             touch-action: manipulation;
         }
         #fs-btn {
-            display: none;
             position: fixed;
             top: 10px; right: 62px;
             z-index: 100;
@@ -143,9 +142,27 @@
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
         }
-        @media (max-width: 850px), (max-height: 650px) {
-            #mute-btn, #fs-btn { display: block; }
+        #menu-btn {
+            display: none;
+            position: fixed;
+            top: 10px; left: 10px;
+            z-index: 100;
+            width: 44px; height: 44px;
+            background: rgba(13, 40, 24, 0.7);
+            border: 2px solid #44ff66;
+            border-radius: 8px;
+            color: #44ff66;
+            font-size: 20px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
+        @media (max-width: 850px), (max-height: 650px) {
+            #mute-btn, #menu-btn { display: block; }
+            #fs-btn { display: none; }
+        }
+
 
 
 
@@ -160,6 +177,8 @@
     </div>
     <button id="mute-btn" aria-label="Toggle sound">&#128266;</button>
     <button id="fs-btn" aria-label="Toggle fullscreen">&#x26F6;</button>
+    <button id="menu-btn" aria-label="Menu">&#9776;</button>
+
 
 
     <div id="cabinet">

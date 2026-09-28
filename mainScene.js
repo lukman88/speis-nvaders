@@ -45,12 +45,15 @@ class MainScene extends Phaser.Scene {
         // Mobile mute button (DOM overlay, top-right corner)
         const muteBtn = document.getElementById('mute-btn');
         if (muteBtn) muteBtn.addEventListener('click', () => this.toggleSound());
-        // Fullscreen toggle button (DOM overlay, next to mute)
+        // Fullscreen toggle (desktop only — iOS Safari lacks requestFullscreen for divs)
         const fsBtn = document.getElementById('fs-btn');
         if (fsBtn) fsBtn.addEventListener('click', () => {
             if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
             else this.goFullscreen();
         });
+        // Menu button (mobile): return to title screen
+        const menuBtn = document.getElementById('menu-btn');
+        if (menuBtn) menuBtn.addEventListener('click', () => this.scene.restart());
         // Re-measure the canvas when the window resizes or the phone rotates.
         // Critical: the container is display:none in portrait, so Phaser can't
         // size the canvas on init. This refresh picks up the new size after rotation.
@@ -59,9 +62,11 @@ class MainScene extends Phaser.Scene {
         window.addEventListener('orientationchange', () => {
             setTimeout(() => this.scale.refresh(), 150);
         });
+        // rAF x2: wait for the browser to finish relayout after fullscreen change
         document.addEventListener('fullscreenchange', () => {
-            setTimeout(() => this.scale.refresh(), 100);
+            requestAnimationFrame(() => requestAnimationFrame(() => this.scale.refresh()));
         });
+
 
 
 
