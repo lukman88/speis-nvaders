@@ -128,9 +128,14 @@ const sfx = (() => {
         stopMusic();
         activeTrack = TRACKS[track] || MUSIC;
         musicStep = 0;
-        musicNext = ctx.currentTime + 0.1;
-        musicTimer = setInterval(musicTick, 60);
-        musicTick();
+        const begin = () => {
+            musicNext = ctx.currentTime + 0.1;
+            musicTimer = setInterval(musicTick, 60);
+            musicTick();
+        };
+        // Mobile: ctx.resume() is async; don't schedule on a suspended context
+        if (ctx.state === 'running') begin();
+        else ctx.resume().then(begin).catch(() => {});
     }
 
     function stopMusic() {
@@ -160,9 +165,13 @@ const sfx = (() => {
         if (!ctx) return;
         stopMarch();
         marchStep = 0;
-        marchNext = ctx.currentTime + 0.05;
-        marchTimer = setInterval(marchTick, 40);
-        marchTick();
+        const begin = () => {
+            marchNext = ctx.currentTime + 0.05;
+            marchTimer = setInterval(marchTick, 40);
+            marchTick();
+        };
+        if (ctx.state === 'running') begin();
+        else ctx.resume().then(begin).catch(() => {});
     }
 
     function stopMarch() {
