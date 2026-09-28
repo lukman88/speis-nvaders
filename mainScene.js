@@ -197,8 +197,9 @@ class MainScene extends Phaser.Scene {
         this.titleUI.add([startGlow, startBtn, startShadow, startLabel]);
 
         // --- High score ---
-        this.titleUI.add(this.add.text(400, 285, 'HIGH SCORE', { fontFamily: 'monospace', fontSize: '14px', color: '#886622', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5));
-        this.titleUI.add(this.add.text(400, 302, String(this.highScore).padStart(5, '0'), { fontFamily: 'monospace', fontSize: '22px', color: '#ffd23d', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
+        this.titleUI.add(this.add.text(400, 250, 'HIGH SCORE', { fontFamily: 'monospace', fontSize: '14px', color: '#886622', stroke: '#000', strokeThickness: 2 }).setOrigin(0.5));
+        this.titleUI.add(this.add.text(400, 272, String(this.highScore).padStart(5, '0'), { fontFamily: 'monospace', fontSize: '22px', color: '#ffd23d', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
+
 
         // --- Sound toggle (magenta accent) ---
         const sndGlow = this.add.graphics();
