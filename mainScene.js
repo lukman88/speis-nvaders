@@ -188,6 +188,7 @@ class MainScene extends Phaser.Scene {
         // fall as hazards in bossHazards. beginWave() picks boss vs formation.
         this.bossGroup = this.physics.add.group();
         this.bossHazards = this.physics.add.group({ classType: BossHazard, velocityY: 240 * this.diffMul });
+        this.ufoGroup = this.physics.add.group();
         this.boss = null;
         this.isBossWave = false;
         this.beginWave();
@@ -207,6 +208,15 @@ class MainScene extends Phaser.Scene {
         this.blackholeUntil = 0;// timestamp when black hole expires
         this.shieldBubble = null; // visual dome sprite (created on pickup)
         this.laserSprite = null;  // visual beam sprite (created on pickup)
+
+        // --- Combo: rapid-kill multiplier (×2–×5), resets after 1.5s idle ---
+        this.comboCount = 0;
+        this.lastKillTime = 0;
+
+        // --- UFO / Mystery ship: appears every 15–25s, worth 50–300 pts ---
+        this.ufo = null;
+        this.ufoNextSpawn = this.time.now + 15000;
+        this.totalInvaders = 0;
 
         // Shared 2-frame walk cycle, synced across the whole formation
         // ponytail: fixed 400ms tick; the arcade original ties the step to march speed.
@@ -256,10 +266,13 @@ class MainScene extends Phaser.Scene {
             const died = invader.takeDamage();
             bullet.destroy();
             if (died) {
-                this.score += invader.points * this.waveCounter; // tiered: 30/20/10 by row × wave
+                // Combo: kills within 1.5s of each other build a ×2–×5 multiplier
+                const now = this.time.now;
+                this.comboCount = (now - this.lastKillTime < 1500) ? this.comboCount + 1 : 1;
+                this.lastKillTime = now;
+                const comboMul = Math.min(this.comboCount, 5);
+                this.score += invader.points * this.waveCounter * comboMul;
                 sfx.boom();
-                this.burst(this.boomFX, invader.x, invader.y, invader.tint, 26); // .tint is a plain number in this build
-                this.updateHud();
                 // Power-up drop: 5% chance per kill, guaranteed every 15 kills
                 this.killsSinceDrop++;
                 if (this.killsSinceDrop >= 15 || Math.random() < 0.05) {
@@ -287,6 +300,23 @@ class MainScene extends Phaser.Scene {
                 this.score += 50;
                 this.updateHud();
             } // 'defeated' is handled by the boss -> onBossDefeated()
+        });
+
+        // UFO: player bullets score 50–300 pts, 30% chance to drop a power-up
+        this.physics.add.overlap(this.playerBullets, this.ufoGroup, (bullet, ufo) => {
+            if (!ufo || ufo.destroyed) return;
+            bullet.destroy();
+            ufo.destroy();
+            this.ufo = null;
+            const pts = 50 + Math.floor(Math.random() * 6) * 50; // 50,100,...,300
+            this.score += pts;
+            sfx.boom();
+            this.burst(this.boomFX, ufo.x, ufo.y, 0xaa66ee, 20);
+            this.updateHud();
+            if (Math.random() < 0.3) {
+                const types = ['rapid', 'spread', 'shield', 'laser', 'slowmo', 'ghost', 'blackhole'];
+                this.powerUps.create(ufo.x, ufo.y, types[Math.floor(Math.random() * types.length)]);
+            }
         });
 
         // Detached parts fall as hazards: they cost a life, same as a bullet hit
@@ -472,7 +502,9 @@ class MainScene extends Phaser.Scene {
             }
 
             const slowMoMul = this.time.now < this.slowMoUntil ? 0.4 : 1;
-            const speed = (Invader.INITIAL_SPEED_X + (this.waveCounter - 1) * 20) * this.diffMul * slowMoMul;
+            const total = this.totalInvaders || invaders.length;
+            const killed = total - invaders.filter(i => i.isAlive && !i.diving).length;
+            const speed = (Invader.INITIAL_SPEED_X + (this.waveCounter - 1) * 20) * this.diffMul * slowMoMul * (1 + (killed / Math.max(1, total)) * 0.8);
             for (const inv of invaders) {
                 if (!inv.isAlive || inv.diving) continue;
                 inv.setVelocityX(speed * this.moveDirection);
@@ -532,6 +564,44 @@ class MainScene extends Phaser.Scene {
         // 3b. Boss movement + attacks (boss waves have no formation, so the block above is skipped)
         if (this.isBossWave && this.boss && this.boss.alive) {
             this.boss.update(this.time.now, delta);
+        }
+
+        // 3a. March sound: tempo tracks remaining invaders (full = slow, few = fast)
+        if (this.gameState === 'playing' && !this.isBossWave) {
+            const aliveCount = invaders.filter(i => i.isAlive && !i.diving).length;
+            if (aliveCount > 0) {
+                sfx.setMarchTempo(aliveCount / Math.max(1, this.totalInvaders));
+            }
+        }
+
+        // 3d. UFO / Mystery ship: spawn every 15–25s, cross the top, despawn off-screen
+        if (this.gameState === 'playing') {
+            const now = this.time.now;
+            if (!this.ufo && now >= this.ufoNextSpawn) {
+                const fromLeft = Math.random() < 0.5;
+                this.ufo = this.physics.add.sprite(fromLeft ? -30 : 830, 42, 'ufo');
+                this.ufo.setDepth(15);
+                this.ufo.body.setAllowGravity(false);
+                this.ufo.body.enable = true;
+                this.ufoGroup.add(this.ufo);
+                this.ufo.setVelocityX(fromLeft ? 120 : -120);
+            }
+            if (this.ufo && !this.ufo.destroyed) {
+                if (this.ufo.x < -50 || this.ufo.x > 850) {
+                    this.ufo.destroy();
+                    this.ufo = null;
+                }
+            }
+            // Schedule the next UFO appearance
+            if (!this.ufo && now >= this.ufoNextSpawn + 5000) {
+                this.ufoNextSpawn = now + 15000 + Math.random() * 10000;
+            }
+        }
+
+        // 3e. Combo decay: if >1.5s since last kill, reset and refresh HUD
+        if (this.comboCount > 0 && this.time.now - this.lastKillTime > 1500) {
+            this.comboCount = 0;
+            this.updateHud();
         }
 
         // 3c. Power-ups: drift, pulse, vanish off the bottom
@@ -652,16 +722,32 @@ class MainScene extends Phaser.Scene {
         const spacingY = 40; // Vertical gap between invader rows
         const rowColors = [0xffffff, 0x66ffff, 0x66ff99, 0xffaa33, 0xff5544];
 
-        // Stage intro: invaders start on a ring off the screen edge and swoop into their slots
+        // Stage intro: invaders start on a ring off the screen edge and swoop into their slots.
+        // Pattern cycles every 4 waves: grid → V → diamond → wall
+        const pattern = (this.waveCounter - 1) % 4;
         const slots = [];
         for (let r = 0; r < Invader.ROWS; ++r) {
             for (let c = 0; c < Invader.COLS; ++c) {
-                // Slot positions relative to center-aligned grid
-                slots.push([startX - ((Invader.COLS - 1) * spacingX / 2) + (c * spacingX), startY + (r * spacingY)]);
+                let rowWidth = spacingX;
+                if (pattern === 1) {
+                    // V: top row narrow, bottom row full width
+                    rowWidth = spacingX * (0.3 + 0.7 * (r / (Invader.ROWS - 1)));
+                } else if (pattern === 2) {
+                    // Diamond: middle row widest
+                    const mid = (Invader.ROWS - 1) / 2;
+                    rowWidth = spacingX * (0.3 + 0.7 * (1 - Math.abs(r - mid) / mid));
+                } else if (pattern === 3) {
+                    // Wall: uniformly wider than grid
+                    rowWidth = spacingX * 1.05;
+                }
+                const sx = W / 2 - ((Invader.COLS - 1) * rowWidth / 2) + (c * rowWidth);
+                const sy = startY + (r * spacingY);
+                slots.push([sx, sy]);
             }
         }
         this.stageIntro = true;
         const N = slots.length;
+        this.totalInvaders = N;
         const R = Math.max(W, H) * 0.62; // ring pokes past every screen edge
         slots.forEach(([sx, sy], i) => {
             const a = (i / N) * Math.PI * 2;
@@ -687,7 +773,10 @@ class MainScene extends Phaser.Scene {
     // normal formations. Regular waves on non-multiples are unchanged.
     beginWave() {
         if (this.waveCounter % 3 === 0) this.spawnBoss();
-        else this.spawnInvaders();
+        else {
+            this.spawnInvaders();
+            sfx.startMarch(55, 55, 55, 49); // A1 A1 A1 G1 - classic 4-note march
+        }
     }
 
     spawnBoss() {
@@ -716,6 +805,7 @@ class MainScene extends Phaser.Scene {
 
     showStageClear() {
         this.gameState = 'stageclear';
+        sfx.stopMarch();
         this.stageClearReady = false; // hold the Space advance until the fly-through lands the message
         // Clear leftover projectiles so nothing keeps hitting the ship during the breather.
         this.playerBullets.clear(true);
@@ -805,7 +895,8 @@ class MainScene extends Phaser.Scene {
     // --- HUD / Game State Helpers ---
 
     updateHud() {
-        this.hudText.setText(`SCORE ${String(this.score).padStart(5, '0')}   HI ${String(Math.max(this.highScore, this.score)).padStart(5, '0')}   LIVES ${this.lives}   WAVE ${this.waveCounter}`);
+        const combo = (this.comboCount > 1 && this.time.now - this.lastKillTime < 1500) ? `  COMBO ×${Math.min(this.comboCount, 5)}` : '';
+        this.hudText.setText(`SCORE ${String(this.score).padStart(5, '0')}   HI ${String(Math.max(this.highScore, this.score)).padStart(5, '0')}   LIVES ${this.lives}   WAVE ${this.waveCounter}${combo}`);
     }
 
     loseLife() {
@@ -865,6 +956,7 @@ class MainScene extends Phaser.Scene {
         if (this.gameState !== 'playing') return;
         this.gameState = 'gameover';
         sfx.stopMusic();
+        sfx.stopMarch();
         sfx.gameover();
 
         // High score: persist the best run (localStorage)
@@ -951,6 +1043,25 @@ class MainScene extends Phaser.Scene {
         g.fillRect(14, 12, 4, 8);
         g.fillRect(24, 12, 4, 8);
         g.generateTexture('invader2', 32, 24);
+        g.destroy();
+
+        // UFO / Mystery ship (48 x 20) — classic saucer: wide disc + dome + lights
+        g = this.make.graphics({ add: false });
+        g.fillStyle(0x8844cc, 1);
+        g.fillEllipse(24, 14, 48, 12);   // main disc
+        g.fillStyle(0xaa66ee, 1);
+        g.fillEllipse(24, 10, 32, 8);   // upper disc
+        g.fillStyle(0x44ccff, 1);
+        g.fillEllipse(24, 8, 16, 10);   // dome
+        g.fillStyle(0xff4444, 1);
+        g.fillCircle(8, 14, 2);          // port lights
+        g.fillCircle(16, 16, 2);
+        g.fillStyle(0x44ff44, 1);
+        g.fillCircle(24, 17, 2);
+        g.fillStyle(0x4444ff, 1);
+        g.fillCircle(32, 16, 2);
+        g.fillCircle(40, 14, 2);
+        g.generateTexture('ufo', 48, 20);
         g.destroy();
 
         // Player bullet (4 x 10)

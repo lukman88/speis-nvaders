@@ -137,6 +137,44 @@ const sfx = (() => {
         if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
     }
 
+    // --- Invader march: 4-note low beat, tempo accelerates as fewer remain ---
+    let marchTimer = null;
+    let marchStep = 0;
+    let marchNext = 0;
+    let marchInterval = 0.4; // seconds per note (set by setMarchTempo)
+    const MARCH_FREQS = [55, 55, 55, 49]; // A1 A1 A1 G1 — the classic four-step stomp
+
+    function marchTick() {
+        if (!ctx || !marchTimer) return;
+        while (marchNext < ctx.currentTime + 0.15) {
+            if (!muted) {
+                const f = MARCH_FREQS[marchStep % 4];
+                tone({ type: 'square', from: f, to: f, dur: marchInterval * 0.85, vol: 0.13, delay: Math.max(0, marchNext - ctx.currentTime) });
+            }
+            marchStep++;
+            marchNext += marchInterval;
+        }
+    }
+
+    function startMarch() {
+        if (!ctx) return;
+        stopMarch();
+        marchStep = 0;
+        marchNext = ctx.currentTime + 0.05;
+        marchTimer = setInterval(marchTick, 40);
+        marchTick();
+    }
+
+    function stopMarch() {
+        if (marchTimer) { clearInterval(marchTimer); marchTimer = null; }
+    }
+
+    // ratio: 1 = full formation (slow), 0 = last invader (fast)
+    function setMarchTempo(ratio) {
+        marchInterval = 0.1 + Math.max(0, Math.min(1, ratio)) * 0.35; // 0.10s–0.45s
+    }
+
+
     return {
         unlock,
         shoot:    () => tone({ type: 'square',   from: 880, to: 160, dur: 0.12, vol: 0.07 }),
@@ -174,6 +212,9 @@ const sfx = (() => {
         },
         startMusic,
         stopMusic,
+        startMarch,
+        stopMarch,
+        setMarchTempo,
         musicRunning: () => musicTimer !== null,
         setMuted: (m) => { muted = !!m; },
         isMuted: () => muted,
