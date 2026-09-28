@@ -45,6 +45,13 @@ class MainScene extends Phaser.Scene {
         // Mobile mute button (DOM overlay, top-right corner)
         const muteBtn = document.getElementById('mute-btn');
         if (muteBtn) muteBtn.addEventListener('click', () => this.toggleSound());
+        // Fullscreen toggle button (DOM overlay, next to mute)
+        const fsBtn = document.getElementById('fs-btn');
+        if (fsBtn) fsBtn.addEventListener('click', () => {
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            else this.goFullscreen();
+        });
+
 
         this.highScore = loadHighScore();
         // Touch/mouse: drag to move the ship, hold to auto-fire. pointerX is the
@@ -156,6 +163,10 @@ class MainScene extends Phaser.Scene {
         const mb = document.getElementById('mute-btn');
         if (mb) mb.textContent = this.soundOn ? '\u{1F50A}' : '\u{1F507}';
     }
+    goFullscreen() {
+        const el = document.getElementById('game-container');
+        if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    }
 
     startGame() {
         if (this.title3dEl) this.title3dEl.classList.remove('on');
@@ -164,6 +175,7 @@ class MainScene extends Phaser.Scene {
         sfx.shoot();
         sfx.startMusic(); // chiptune loop until game over / quit to title
         this.physics.resume(); // showPause() pauses it
+        this.goFullscreen(); // hide browser chrome on mobile; no-op on desktop
 
         // --- Game state ---
         this.gameState = 'playing';
