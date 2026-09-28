@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23050514'/><rect x='4' y='4' width='8' height='2' fill='%2339ff88'/><rect x='2' y='6' width='12' height='4' fill='%2339ff88'/><rect x='3' y='10' width='2' height='2' fill='%2339ff88'/><rect x='11' y='10' width='2' height='2' fill='%2339ff88'/></svg>">
     <title>Space Invaders Reimagined</title>
     <style>
@@ -35,6 +36,7 @@
             border-radius: 10px;
             box-shadow: inset 0 0 22px #000;     /* screen depth */
             line-height: 0;                      /* kill canvas inline gap */
+            touch-action: none;                  /* prevent browser scroll/zoom on the canvas */
         }
         /* 3D title: CSS perspective + layered text-shadow extrusion (this Phaser build has no skew API)
            41.667% = 250/600, the title's y in game coords; canvas is unscaled 800x600 */
@@ -62,6 +64,16 @@
         #controls .joystick { color: #ff2d78; }
         #controls .coin { color: #ffd23d; animation: blink 1.4s steps(1) infinite; }
         @keyframes blink { 50% { opacity: 0.25; } }
+        /* Mobile: strip cabinet chrome, fill the screen */
+        @media (max-width: 850px), (max-height: 650px) {
+            #cabinet { border: none; border-radius: 0; padding: 0; box-shadow: none; background: none; }
+            #marquee, #controls { display: none; }
+            #game-container { border: none; outline: none; border-radius: 0; box-shadow: none; }
+            #game-container canvas { border-radius: 0; }
+            body { min-height: 100vh; min-height: 100dvh; }
+            #title-3d { font-size: 28px; letter-spacing: 1px; }
+        }
+
     </style>
     <!-- Load Phaser library (local copy — no internet required) -->
     <script src="lib/phaser.min.js"></script>

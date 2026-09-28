@@ -114,19 +114,19 @@ class MainScene extends Phaser.Scene {
         const refreshDiff = () => this.diffBtns.forEach((b, j) => b.setFillStyle(j === this.difficulty ? 0x1d4d33 : 0x0d2818));
         this.diffBtns = DIFFICULTIES.map((name, i) => {
             const x = 190 + i * 140;
-            const btn = this.add.rectangle(x, 320, 128, 34, 0x0d2818, 1).setInteractive({ useHandCursor: true });
+            const btn = this.add.rectangle(x, 320, 128, 44, 0x0d2818, 1).setInteractive({ useHandCursor: true });
             // both in the container, label after button — root-level rects would render over titleUI contents
-            this.titleUI.add([btn, this.add.text(x, 320, name, { fontFamily: 'monospace', fontSize: '15px', color: '#44ff66' }).setOrigin(0.5)]);
+            this.titleUI.add([btn, this.add.text(x, 320, name, { fontFamily: 'monospace', fontSize: '16px', color: '#44ff66' }).setOrigin(0.5)]);
             btn.on('pointerover', () => btn.setFillStyle(0x2d6d53));
             btn.on('pointerout', refreshDiff);
             btn.on('pointerdown', () => { this.difficulty = i; refreshDiff(); });
             return btn;
         });
         refreshDiff();
-        this.makeButton(this.titleUI, 400, 380, 230, 56, 'START GAME', () => this.startGame(), '26px');
+        this.makeButton(this.titleUI, 400, 380, 240, 64, 'START GAME', () => this.startGame(), '26px');
         // High score (localStorage) + sound toggle; M works in any state
         this.titleUI.add(this.add.text(400, 290, `HIGH SCORE ${String(this.highScore).padStart(5, '0')}`, { fontFamily: 'monospace', fontSize: '20px', color: '#ffd23d' }).setOrigin(0.5));
-        const sound = this.makeButton(this.titleUI, 400, 445, 230, 40, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => this.toggleSound(), '18px');
+        const sound = this.makeButton(this.titleUI, 400, 450, 240, 48, 'SOUND: ' + (this.soundOn ? 'ON' : 'OFF'), () => this.toggleSound(), '18px');
         this.muteLabel = sound.label;
     }
 
@@ -1305,7 +1305,11 @@ const config = {
     type: Phaser.AUTO, // Automatically select the best renderer
     width: 800,
     height: 600,
-    parent: 'game-container', // render inside the cabinet bezel in index.html
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    parent: 'game-container',
     physics: {
         default: 'arcade',
         arcade: {
