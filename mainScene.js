@@ -36,6 +36,10 @@ class MainScene extends Phaser.Scene {
         this.mKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
         // Browsers only allow audio after a user gesture; any keypress counts
         this.input.keyboard.on('keydown', () => sfx.unlock());
+        // Mobile browsers require a native DOM user gesture to unlock AudioContext;
+        // Phaser's pointer events don't always carry the user-activation flag.
+        document.addEventListener('touchstart', () => sfx.unlock(), { once: true, passive: true });
+        document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 
         this.soundOn = !sfx.isMuted(); // mute state is global, survives scene restarts
         this.highScore = loadHighScore();
