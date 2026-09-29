@@ -78,18 +78,30 @@ class MainScene extends Phaser.Scene {
 
 
         this.highScore = loadHighScore();
-        // Touch/mouse: drag to move the ship, hold to auto-fire. pointerX is the
-        // last touched canvas x (null until first touch); pointerHeld gates firing.
+        // Touch/mouse: drag to move the ship, hold to auto-fire. DOM-level so taps
+        // outside the canvas (letterbox areas on mobile) also control the ship.
         this.pointerX = null;
         this.pointerHeld = false;
-        this.input.on('pointerdown', (p) => {
+        const canvas = this.game.canvas;
+        const toGameX = (clientX) => {
+            const r = canvas.getBoundingClientRect();
+            return r.width > 0 ? Phaser.Math.Clamp((clientX - r.left) / r.width * 800, 0, 800) : null;
+        };
+        document.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('#mute-btn') || e.target.closest('#menu-btn')) return;
             if (this.gameState === 'gameover') { this.goToTitle(); return; }
             if (this.gameState === 'stageclear' && this.stageClearReady) { this.nextWave(); return; }
-            this.pointerX = p.x; this.pointerHeld = true;
+            const gx = toGameX(e.clientX);
+            if (gx !== null) { this.pointerX = gx; this.pointerHeld = true; }
         });
+        document.addEventListener('pointermove', (e) => {
+            if (!this.pointerHeld) return;
+            if (e.target.closest('#mute-btn') || e.target.closest('#menu-btn')) return;
+            const gx = toGameX(e.clientX);
+            if (gx !== null) this.pointerX = gx;
+        });
+        document.addEventListener('pointerup', () => { this.pointerHeld = false; });
 
-        this.input.on('pointermove', (p) => { if (p.isDown) this.pointerX = p.x; });
-        this.input.on('pointerup', () => { this.pointerHeld = false; });
 
         this.showTitle();
     }
@@ -281,6 +293,8 @@ class MainScene extends Phaser.Scene {
         if (this.titleUI) { this.titleUI.destroy(); this.titleUI = null; this.muteLabel = null; }
         if (this.stageClearUI) { this.stageClearUI.destroy(); this.stageClearUI = null; }
         if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; }
+        if (this.gameOverUI) { this.gameOverUI.destroy(); this.gameOverUI = null; }
+
         if (this.invaderGroup) this.invaderGroup.clear(true);
         if (this.playerBullets) this.playerBullets.clear(true);
         if (this.enemyBullets) this.enemyBullets.clear(true);
@@ -1133,11 +1147,12 @@ class MainScene extends Phaser.Scene {
         this.isBossWave = false;
         this.player.setVelocity(0, 0);
 
-        // Dim the frozen battlefield so the text reads over it. setDepth(100) like the pause
-        // overlay: invaders/ship carry their own depth and would otherwise sort above it.
-        this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75).setDepth(100);
-        this.add.text(400, 280, 'GAME OVER', { fontFamily: 'monospace', fontSize: '48px', color: '#ff5544' }).setOrigin(0.5).setDepth(100);
-        this.add.text(400, 330, `FINAL SCORE ${this.score}\nHIGH SCORE ${String(this.highScore).padStart(5, '0')}${isNewBest ? '  NEW BEST!' : ''}\nPress R or tap to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setDepth(100);
+        // Dim the frozen battlefield so the text reads over it. Container like pauseUI/stageClearUI
+        // so goToTitle() can destroy it cleanly.
+        this.gameOverUI = this.add.container(0, 0).setDepth(100);
+        this.gameOverUI.add(this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75));
+        this.gameOverUI.add(this.add.text(400, 280, 'GAME OVER', { fontFamily: 'monospace', fontSize: '48px', color: '#ff5544' }).setOrigin(0.5));
+        this.gameOverUI.add(this.add.text(400, 330, `FINAL SCORE ${this.score}\nHIGH SCORE ${String(this.highScore).padStart(5, '0')}${isNewBest ? '  NEW BEST!' : ''}\nPress R or tap to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5));
 
     }
 
