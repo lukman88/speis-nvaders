@@ -82,7 +82,12 @@ class MainScene extends Phaser.Scene {
         // last touched canvas x (null until first touch); pointerHeld gates firing.
         this.pointerX = null;
         this.pointerHeld = false;
-        this.input.on('pointerdown', (p) => { this.pointerX = p.x; this.pointerHeld = true; });
+        this.input.on('pointerdown', (p) => {
+            if (this.gameState === 'gameover') { this.goToTitle(); return; }
+            if (this.gameState === 'stageclear' && this.stageClearReady) { this.nextWave(); return; }
+            this.pointerX = p.x; this.pointerHeld = true;
+        });
+
         this.input.on('pointermove', (p) => { if (p.isDown) this.pointerX = p.x; });
         this.input.on('pointerup', () => { this.pointerHeld = false; });
 
@@ -1014,7 +1019,8 @@ class MainScene extends Phaser.Scene {
     showStageClearMessage() {
         this.stageClearUI = this.add.container(0, 0).setDepth(100);
         this.stageClearUI.add(this.add.text(400, 270, `STAGE ${this.waveCounter} CLEAR`, { fontFamily: 'monospace', fontSize: '46px', color: '#39ff88' }).setOrigin(0.5));
-        const hint = this.add.text(400, 330, 'Press SPACE for the next stage', { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5);
+        const hint = this.add.text(400, 330, 'Press SPACE or tap for the next stage', { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5);
+
         this.tweens.add({ targets: hint, alpha: 0.3, duration: 500, yoyo: true, repeat: -1 });
         this.stageClearUI.add(hint);
         this.stageClearReady = true;
@@ -1131,7 +1137,8 @@ class MainScene extends Phaser.Scene {
         // overlay: invaders/ship carry their own depth and would otherwise sort above it.
         this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75).setDepth(100);
         this.add.text(400, 280, 'GAME OVER', { fontFamily: 'monospace', fontSize: '48px', color: '#ff5544' }).setOrigin(0.5).setDepth(100);
-        this.add.text(400, 330, `FINAL SCORE ${this.score}\nHIGH SCORE ${String(this.highScore).padStart(5, '0')}${isNewBest ? '  NEW BEST!' : ''}\nPress R to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setDepth(100);
+        this.add.text(400, 330, `FINAL SCORE ${this.score}\nHIGH SCORE ${String(this.highScore).padStart(5, '0')}${isNewBest ? '  NEW BEST!' : ''}\nPress R or tap to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setDepth(100);
+
     }
 
     // --- Procedural Textures (no external assets needed) ---

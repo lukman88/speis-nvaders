@@ -66,12 +66,13 @@
         @keyframes blink { 50% { opacity: 0.25; } }
         /* Mobile: strip cabinet chrome, fill the screen */
         @media (max-width: 850px), (max-height: 650px) {
-            body { min-height: 100vh; min-height: 100dvh; }
+            body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
             #cabinet {
                 border: none; border-radius: 0; padding: 0;
                 box-shadow: none; background: none;
                 width: 100vw; height: 100dvh;
                 display: flex;
+                position: fixed; inset: 0;
             }
             #marquee, #controls { display: none; }
             #game-container {
@@ -81,6 +82,7 @@
             #game-container canvas { border-radius: 0; }
             #title-3d { font-size: 28px; letter-spacing: 1px; }
         }
+
 
         /* Portrait prompt: shown only on small screens in portrait orientation */
         #rotate-prompt {
