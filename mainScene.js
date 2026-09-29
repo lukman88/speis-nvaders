@@ -1470,7 +1470,11 @@ class MainScene extends Phaser.Scene {
 
 // Phaser Game Configuration
 const config = {
-    type: Phaser.AUTO, // Automatically select the best renderer
+    // Canvas 2D on mobile: immune to GPU driver bugs that corrupt WebGL textures
+    // (reported: background disappears after wave 1 on real devices). Negligible
+    // perf cost for a game this simple. Desktop keeps WebGL for smoothness.
+    type: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? Phaser.CANVAS : Phaser.AUTO,
+
     width: 800,
     height: 600,
     scale: {
