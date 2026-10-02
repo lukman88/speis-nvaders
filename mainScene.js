@@ -706,6 +706,28 @@ class MainScene extends Phaser.Scene {
                 inv.setVelocityX(speed * this.moveDirection);
             }
 
+            // Slowmo also affects projectiles: scale velocity by ratio (no compounding)
+            for (const b of this.playerBullets.getChildren().slice()) {
+                if (!b.body) continue;
+                const prev = b._slowFactor || 1;
+                if (prev !== slowMoMul) {
+                    const ratio = slowMoMul / prev;
+                    b.body.velocity.x *= ratio;
+                    b.body.velocity.y *= ratio;
+                    b._slowFactor = slowMoMul;
+                }
+            }
+            for (const b of this.enemyBullets.getChildren().slice()) {
+                if (!b.body) continue;
+                const prev = b._slowFactor || 1;
+                if (prev !== slowMoMul) {
+                    const ratio = slowMoMul / prev;
+                    b.body.velocity.x *= ratio;
+                    b.body.velocity.y *= ratio;
+                    b._slowFactor = slowMoMul;
+                }
+            }
+
             const now = this.time.now;
             const alive = invaders.filter(i => i.isAlive);
 
