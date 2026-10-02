@@ -94,6 +94,25 @@ class MainScene extends Phaser.Scene {
             const gx = toGameX(e.clientX);
             if (gx !== null) { this.pointerX = gx; this.pointerHeld = true; }
         });
+        // Pointer input for touch/mobile controls.
+        this.input.on('pointerdown', (p) => {
+            // 1. Handle state transitions on tap (Game Over/Stage Clear)
+            if (this.gameState === 'gameover' && !this.gameOverTapHandled) {
+                // User tapped anywhere, assume restart
+                this.gameOverTapHandled = true;
+                this.scene.restart();
+                return;
+            }
+            if (this.gameState === 'stageclear' && this.stageClearReady && !this.stageClearTapHandled) {
+                // User tapped anywhere, assume next wave
+                this.stageClearTapHandled = true;
+                this.nextWave();
+                return;
+            }
+            // Reset flags after processing
+            this.gameOverTapHandled = false;
+            this.stageClearTapHandled = false;
+        });
         document.addEventListener('pointermove', (e) => {
             if (!this.pointerHeld) return;
             if (e.target.closest('#mute-btn') || e.target.closest('#menu-btn')) return;
@@ -563,6 +582,14 @@ class MainScene extends Phaser.Scene {
         if (this.gameState === 'gameover') {
             if (Phaser.Input.Keyboard.JustDown(this.restartKey)) this.scene.restart();
             return;
+        // Pointer input for touch/mobile controls (for non-state specific interactions)
+        this.input.on('pointerdown', (p) => {
+            // State logic is handled by the block above, this is for gameplay interaction.
+            if (this.gameState === 'playing') {
+                this.pointerX = p.x;
+                this.pointerHeld = true;
+            }
+        });
         }
 
         if (this.gameState === 'stageclear') {
