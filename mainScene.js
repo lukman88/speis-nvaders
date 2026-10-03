@@ -34,6 +34,35 @@ class MainScene extends Phaser.Scene {
         this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
         this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
         this.mKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+        // All persistent input listeners live in registerInputListeners() — see
+        // the comment there for why they must not be re-registered per restart.
+        this.registerInputListeners();
+
+        this.soundOn = !sfx.isMuted(); // mute state is global, survives scene restarts
+
+
+
+
+
+
+
+        this.highScore = loadHighScore();
+        // Touch/mouse: drag to move the ship, hold to auto-fire.
+        this.pointerX = null;
+        this.pointerHeld = false;
+
+        this.showTitle();
+    }
+
+    // One-time input listeners. create() re-runs on every scene.restart()
+    // (R restart, QUIT TO TITLE), and re-adding these document/window handlers
+    // each time stacks another copy per restart — every later tap then runs
+    // N copies of the same handler. The scene object persists across restarts,
+    // so registering once for its lifetime is enough.
+    registerInputListeners() {
+        if (this.inputListenersRegistered) return;
+        this.inputListenersRegistered = true;
+
         // Browsers only allow audio after a user gesture; any keypress counts
         this.input.keyboard.on('keydown', () => sfx.unlock());
         // Mobile browsers require a native DOM user gesture to unlock AudioContext;
@@ -41,14 +70,16 @@ class MainScene extends Phaser.Scene {
         document.addEventListener('touchstart', () => sfx.unlock(), { once: true, passive: true });
         document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 
-        this.soundOn = !sfx.isMuted(); // mute state is global, survives scene restarts
         // Mobile mute button (DOM overlay, top-right corner)
         const muteBtn = document.getElementById('mute-btn');
         if (muteBtn) muteBtn.addEventListener('click', () => this.toggleSound());
-        // Fullscreen toggle (desktop only — iOS Safari lacks requestFullscreen for divs)
+        // Fullscreen toggle (desktop only — iOS Safari lacks requestFullscreen for divs).
+        // Refresh the scale once the transition promise resolves: the fullscreenchange
+        // listener's rAF/timeout refresh can measure the pre-transition layout and
+        // leave the canvas sized for the wrong box (zoomed-in/overflowing canvas).
         const fsBtn = document.getElementById('fs-btn');
         if (fsBtn) fsBtn.addEventListener('click', () => {
-            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            if (document.fullscreenElement) document.exitFullscreen().then(() => this.scale.refresh(), () => {});
             else this.goFullscreen();
         });
         // Menu button (mobile): return to title screen
@@ -71,47 +102,24 @@ class MainScene extends Phaser.Scene {
             setTimeout(() => this.scale.refresh(), 150);
         });
 
-
-
-
-
-
-
-        this.highScore = loadHighScore();
         // Touch/mouse: drag to move the ship, hold to auto-fire. DOM-level so taps
         // outside the canvas (letterbox areas on mobile) also control the ship.
-        this.pointerX = null;
-        this.pointerHeld = false;
         const canvas = this.game.canvas;
         const toGameX = (clientX) => {
             const r = canvas.getBoundingClientRect();
             return r.width > 0 ? Phaser.Math.Clamp((clientX - r.left) / r.width * 800, 0, 800) : null;
         };
+        // One owner for the game-over/stage-clear transitions: this DOM handler
+        // sees every tap, inside and outside the canvas, so the gesture means the
+        // same thing everywhere and a single tap can't be double-handled by a
+        // second (Phaser) pointer listener. The transitions run synchronously, so
+        // no tap flags are needed — the state has changed before the next tap lands.
         document.addEventListener('pointerdown', (e) => {
             if (e.target.closest('#mute-btn') || e.target.closest('#menu-btn')) return;
             if (this.gameState === 'gameover') { this.goToTitle(); return; }
             if (this.gameState === 'stageclear' && this.stageClearReady) { this.nextWave(); return; }
             const gx = toGameX(e.clientX);
             if (gx !== null) { this.pointerX = gx; this.pointerHeld = true; }
-        });
-        // Pointer input for touch/mobile controls.
-        this.input.on('pointerdown', (p) => {
-            // 1. Handle state transitions on tap (Game Over/Stage Clear)
-            if (this.gameState === 'gameover' && !this.gameOverTapHandled) {
-                // User tapped anywhere, assume restart
-                this.gameOverTapHandled = true;
-                this.scene.restart();
-                return;
-            }
-            if (this.gameState === 'stageclear' && this.stageClearReady && !this.stageClearTapHandled) {
-                // User tapped anywhere, assume next wave
-                this.stageClearTapHandled = true;
-                this.nextWave();
-                return;
-            }
-            // Reset flags after processing
-            this.gameOverTapHandled = false;
-            this.stageClearTapHandled = false;
         });
         document.addEventListener('pointermove', (e) => {
             if (!this.pointerHeld) return;
@@ -120,9 +128,6 @@ class MainScene extends Phaser.Scene {
             if (gx !== null) this.pointerX = gx;
         });
         document.addEventListener('pointerup', () => { this.pointerHeld = false; });
-
-
-        this.showTitle();
     }
 
     // Title screen. A state, not a scene: this build's SceneManager mangles
@@ -301,7 +306,9 @@ class MainScene extends Phaser.Scene {
     }
     goFullscreen() {
         const el = document.getElementById('game-container');
-        if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+        // Refresh once the browser has actually entered fullscreen (the promise
+        // resolves after the transition), so scale.refresh measures the new box.
+        if (el && el.requestFullscreen) el.requestFullscreen().then(() => this.scale.refresh()).catch(() => {});
     }
 
     // Menu button: clean up all game state and return to title
@@ -313,6 +320,10 @@ class MainScene extends Phaser.Scene {
         if (this.stageClearUI) { this.stageClearUI.destroy(); this.stageClearUI = null; }
         if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; }
         if (this.gameOverUI) { this.gameOverUI.destroy(); this.gameOverUI = null; }
+        // Power-up visuals are scene-level; update() returns early in the 'title'
+        // state, so their "hide when expired" branch never runs — tear them down here.
+        if (this.shieldBubble) { this.shieldBubble.destroy(); this.shieldBubble = null; }
+        if (this.laserSprite) { this.laserSprite.destroy(); this.laserSprite = null; }
 
         if (this.invaderGroup) this.invaderGroup.clear(true);
         if (this.playerBullets) this.playerBullets.clear(true);
@@ -341,7 +352,10 @@ class MainScene extends Phaser.Scene {
         sfx.shoot();
         sfx.startMusic(); // chiptune loop until game over / quit to title
         this.physics.resume(); // showPause() pauses it
-        this.goFullscreen(); // hide browser chrome on mobile; no-op on desktop
+        // Auto-fullscreen is a mobile-only affordance: Chrome desktop grew the
+        // element Fullscreen API, so the old "no-op on desktop" is no longer true
+        // and the game jumped zoomed-in on start. Desktop keeps the fs-btn opt-in.
+        if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) this.goFullscreen();
 
         // --- Game state ---
         this.gameState = 'playing';
@@ -564,6 +578,26 @@ class MainScene extends Phaser.Scene {
         emitter.explode(count);
     }
 
+    // Slow-mo rescale for anything with momentum (bullets, divers, boss hazards).
+    // Bodies carry _slowFactor so the rescale is applied once per state change,
+    // never compounded per frame. Gravity scales by ratio² alongside velocity:
+    // fireArcAt()/diveAt() set a matched velocity+gravity pair calibrated to hit
+    // a locked target at t = T, and scaling gravity by ratio² keeps that parabola
+    // exact — the body just traverses it slower and still lands on target.
+    applySlowMo(list, mul) {
+        for (const o of list) {
+            if (!o.body) continue;
+            const prev = o._slowFactor || 1;
+            if (prev !== mul) {
+                const ratio = mul / prev;
+                o.body.velocity.x *= ratio;
+                o.body.velocity.y *= ratio;
+                o.body.gravity.y *= ratio * ratio;
+                o._slowFactor = mul;
+            }
+        }
+    }
+
     update(time, delta) {
         // M mutes/unmutes in any state (title, playing, pause, game over)
         if (Phaser.Input.Keyboard.JustDown(this.mKey)) this.toggleSound();
@@ -582,14 +616,6 @@ class MainScene extends Phaser.Scene {
         if (this.gameState === 'gameover') {
             if (Phaser.Input.Keyboard.JustDown(this.restartKey)) this.scene.restart();
             return;
-        // Pointer input for touch/mobile controls (for non-state specific interactions)
-        this.input.on('pointerdown', (p) => {
-            // State logic is handled by the block above, this is for gameplay interaction.
-            if (this.gameState === 'playing') {
-                this.pointerX = p.x;
-                this.pointerHeld = true;
-            }
-        });
         }
 
         if (this.gameState === 'stageclear') {
@@ -671,6 +697,17 @@ class MainScene extends Phaser.Scene {
         // 3. Invader formation movement + enemy fire
         // getChildren() returns the LIVE group array — slice so any later destroy can't skew iteration
         const invaders = this.invaderGroup.getChildren().slice();
+
+        // Slow-mo rescale: outside the formation gate below — boss waves have an
+        // empty formation (the gate is skipped every frame), divers keep flying
+        // on their locked parabolas, and the stage-intro swoop shouldn't gate
+        // projectile slowing either.
+        const slowMoMul = this.time.now < this.slowMoUntil ? 0.4 : 1;
+        this.applySlowMo(this.playerBullets.getChildren().slice(), slowMoMul);
+        this.applySlowMo(this.enemyBullets.getChildren().slice(), slowMoMul);
+        this.applySlowMo(this.bossHazards.getChildren().slice(), slowMoMul);
+        this.applySlowMo(invaders.filter(i => i.isAlive && i.diving), slowMoMul);
+
         if (invaders.length > 0 && !this.stageIntro) {
             let maxRight = -Infinity;
             let minLeft = Infinity;
@@ -697,35 +734,12 @@ class MainScene extends Phaser.Scene {
                 }
             }
 
-            const slowMoMul = this.time.now < this.slowMoUntil ? 0.4 : 1;
             const total = this.totalInvaders || invaders.length;
             const killed = total - invaders.filter(i => i.isAlive && !i.diving).length;
             const speed = (Invader.INITIAL_SPEED_X + (this.waveCounter - 1) * 20) * this.diffMul * slowMoMul * (1 + (killed / Math.max(1, total)) * 0.8);
             for (const inv of invaders) {
                 if (!inv.isAlive || inv.diving) continue;
                 inv.setVelocityX(speed * this.moveDirection);
-            }
-
-            // Slowmo also affects projectiles: scale velocity by ratio (no compounding)
-            for (const b of this.playerBullets.getChildren().slice()) {
-                if (!b.body) continue;
-                const prev = b._slowFactor || 1;
-                if (prev !== slowMoMul) {
-                    const ratio = slowMoMul / prev;
-                    b.body.velocity.x *= ratio;
-                    b.body.velocity.y *= ratio;
-                    b._slowFactor = slowMoMul;
-                }
-            }
-            for (const b of this.enemyBullets.getChildren().slice()) {
-                if (!b.body) continue;
-                const prev = b._slowFactor || 1;
-                if (prev !== slowMoMul) {
-                    const ratio = slowMoMul / prev;
-                    b.body.velocity.x *= ratio;
-                    b.body.velocity.y *= ratio;
-                    b._slowFactor = slowMoMul;
-                }
             }
 
             const now = this.time.now;
