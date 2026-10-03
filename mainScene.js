@@ -1031,7 +1031,12 @@ class MainScene extends Phaser.Scene {
         this.isBossWave = false;
         this.boss = null;
         this.bossGroup.clear(true);
-        sfx.startMusic('normal'); // back to the menacing loop
+        // Clear in-flight projectiles + hazards the moment the boss explodes: the
+        // 2s breather below still runs the player×enemyBullets / player×bossHazards
+        // overlaps (gameState is still 'playing'), so a bullet that was already
+        // falling would otherwise drain a life — unfair after a clean kill.
+        this.enemyBullets.clear(true);
+        this.bossHazards.clear(true);
         // 2s breather after the explosion before the stage-clear screen appears
         this.time.delayedCall(2000, () => this.showStageClear());
     }
