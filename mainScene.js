@@ -23,6 +23,16 @@ class MainScene extends Phaser.Scene {
     }
 
     create() {
+        // scene.restart() (R restart / QUIT TO TITLE) re-runs create() without
+        // goToTitle()'s teardown, so a previous run's overlays (GAME OVER, PAUSED,
+        // STAGE CLEAR, title) would otherwise persist on top of the fresh game.
+        // Destroy them before rebuilding so the new run starts clean.
+        if (this.gameOverUI) { this.gameOverUI.destroy(); this.gameOverUI = null; }
+        if (this.stageClearUI) { this.stageClearUI.destroy(); this.stageClearUI = null; }
+        if (this.pauseUI) { this.pauseUI.destroy(); this.pauseUI = null; }
+        if (this.titleUI) { this.titleUI.destroy(); this.titleUI = null; this.muteLabel = null; }
+        if (this.shieldBubble) { this.shieldBubble.destroy(); this.shieldBubble = null; }
+        if (this.laserSprite) { this.laserSprite.destroy(); this.laserSprite = null; }
         this.createTextures();
         console.info('[SI] mainScene rev: per-wave starfield + css 3d title'); // fingerprint — if the console doesn't show this after reload, the browser cached an old copy
         this.createStarfield();
